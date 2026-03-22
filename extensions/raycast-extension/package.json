@@ -1,0 +1,48 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "ccm",
+  "title": "CCM - Claude Config Manager",
+  "description": "Search and launch Claude Code projects via CCM",
+  "icon": "command-icon.png",
+  "author": "admin",
+  "categories": ["Developer Tools"],
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "search-projects",
+      "title": "Search Projects",
+      "description": "Search CCM projects and launch Claude Code",
+      "mode": "view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "apiToken",
+      "title": "API Token",
+      "description": "CCM API token (generated in CCM Settings → HTTP API)",
+      "type": "password",
+      "required": true
+    },
+    {
+      "name": "apiPort",
+      "title": "API Port",
+      "description": "CCM HTTP API port",
+      "type": "textfield",
+      "required": false,
+      "default": "23890"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.83.0",
+    "node-fetch": "^3.3.0"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^1.0.11",
+    "typescript": "^5.4.0"
+  },
+  "scripts": {
+    "build": "ray build",
+    "dev": "ray develop",
+    "lint": "ray lint"
+  }
+}

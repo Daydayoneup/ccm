@@ -1,0 +1,9 @@
+node_modules/
+dist/
+target/
+src-tauri/target
+src-tauri/gen/schemas/
+.DS_Store
+*.swp
+app-icon.png
+.worktrees/
