@@ -2,6 +2,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MarkdownEditor } from '@/components/editor/MarkdownEditor';
+import { SkillEditor } from '@/components/editor/SkillEditor';
 
 function extractFileName(filePath: string): { name: string; dir: string } {
   const parts = filePath.split('/');
@@ -14,6 +15,8 @@ export function EditorPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const filePath = searchParams.get('file');
+  const resourceId = searchParams.get('resource_id');
+  const type = searchParams.get('type');
 
   if (!filePath) {
     return (
@@ -47,9 +50,13 @@ export function EditorPage() {
         </div>
       </div>
 
-      {/* Editor fills remaining space */}
-      <div className="min-h-0 flex-1">
-        <MarkdownEditor filePath={filePath} />
+      {/* Editor fills remaining space — h-0 + flex-1 + overflow-hidden prevents
+           the parent <main>'s overflow-y-auto from allowing content to grow beyond
+           the viewport, which would cause blank space at the bottom */}
+      <div className="flex min-h-0 h-0 flex-1 flex-col overflow-hidden">
+        {type === 'skill' && resourceId
+          ? <SkillEditor filePath={filePath} resourceId={resourceId} />
+          : <MarkdownEditor filePath={filePath} />}
       </div>
     </div>
   );

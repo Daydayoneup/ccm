@@ -1,5 +1,6 @@
 pub mod api;
 pub mod files;
+pub mod frontmatter_cmd;
 pub mod global;
 #[allow(dead_code)]
 pub mod library;
@@ -15,3 +16,4 @@ pub mod registry;
 pub mod library_plugin;
 pub mod proxy;
 pub mod settings;
+pub mod versions;

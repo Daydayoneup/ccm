@@ -78,6 +78,8 @@ pub fn scan_and_insert_plugins(db: &crate::db::Database, registry: &Registry) ->
                         metadata: Some(reg_plugin.id.clone()),
                         created_at: now.clone(),
                         updated_at: now.clone(),
+                        version: None,
+                        is_draft: 1,
                     };
                     let _ = db.insert_resource(&resource);
                 }
@@ -136,6 +138,8 @@ pub fn scan_and_insert_plugins(db: &crate::db::Database, registry: &Registry) ->
                 metadata: Some(fallback_plugin.id.clone()),
                 created_at: now.clone(),
                 updated_at: now.clone(),
+                version: None,
+                is_draft: 1,
             };
             let _ = db.insert_resource(&resource);
         }
@@ -551,6 +555,8 @@ pub fn publish_to_registry(
         metadata: Some(registry_id.clone()),
         created_at: now.clone(),
         updated_at: now,
+        version: None,
+        is_draft: 1,
     };
 
     db.insert_resource(&new_resource).map_err(|e| e.to_string())?;
@@ -1044,6 +1050,8 @@ mod tests {
             metadata: Some(registry_id.to_string()),
             created_at: "2026-03-01T00:00:00Z".to_string(),
             updated_at: "2026-03-01T00:00:00Z".to_string(),
+            version: None,
+            is_draft: 1,
         }
     }
 
@@ -1238,6 +1246,8 @@ mod tests {
             metadata: None,
             created_at: "2026-03-01T00:00:00Z".to_string(),
             updated_at: "2026-03-01T00:00:00Z".to_string(),
+            version: None,
+            is_draft: 1,
         };
         db.insert_resource(&resource).unwrap();
 
@@ -1259,6 +1269,8 @@ mod tests {
             metadata: None,
             created_at: "2026-03-01T00:00:00Z".to_string(),
             updated_at: "2026-03-01T00:00:00Z".to_string(),
+            version: None,
+            is_draft: 1,
         };
         db.insert_resource(&resource).unwrap();
 
@@ -1352,6 +1364,8 @@ mod tests {
             metadata: Some("plugin-abc".to_string()),
             created_at: "2026-03-01T00:00:00Z".to_string(),
             updated_at: "2026-03-01T00:00:00Z".to_string(),
+            version: None,
+            is_draft: 1,
         };
         let r2 = Resource {
             id: "res2".to_string(),
@@ -1364,6 +1378,8 @@ mod tests {
             metadata: Some("plugin-abc".to_string()),
             created_at: "2026-03-01T00:00:00Z".to_string(),
             updated_at: "2026-03-01T00:00:00Z".to_string(),
+            version: None,
+            is_draft: 1,
         };
         db.insert_resource(&r1).unwrap();
         db.insert_resource(&r2).unwrap();
@@ -1414,6 +1430,8 @@ mod tests {
             metadata: Some("plugin-xyz".to_string()),
             created_at: "2026-03-01T00:00:00Z".to_string(),
             updated_at: "2026-03-01T00:00:00Z".to_string(),
+            version: None,
+            is_draft: 1,
         };
         db.insert_resource(&r1).unwrap();
 

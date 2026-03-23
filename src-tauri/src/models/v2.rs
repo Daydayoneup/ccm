@@ -81,6 +81,18 @@ pub struct Resource {
     pub metadata: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub version: Option<String>,
+    pub is_draft: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceVersion {
+    pub id: String,
+    pub resource_id: String,
+    pub version: String,
+    pub changelog: Option<String>,
+    pub content_hash: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -128,6 +128,8 @@ pub fn create_global_resource(
         metadata: None,
         created_at: now.clone(),
         updated_at: now,
+        version: None,
+        is_draft: 1,
     };
 
     db.insert_resource(&resource).map_err(|e| e.to_string())?;
@@ -224,6 +226,8 @@ pub fn backup_to_library(db: State<Database>, resource_id: String) -> Result<Res
         metadata: None,
         created_at: now.clone(),
         updated_at: now,
+        version: None,
+        is_draft: 1,
     };
 
     db.insert_resource(&library_resource).map_err(|e| e.to_string())?;

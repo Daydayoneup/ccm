@@ -249,6 +249,8 @@ pub fn scan_file_resources(
                 metadata: metadata.clone(),
                 created_at: now.clone(),
                 updated_at: now.clone(),
+                version: None,
+                is_draft: 1,
             });
         } else {
             // Agents / Rules / Commands: look for .md files
@@ -275,6 +277,8 @@ pub fn scan_file_resources(
                 metadata: metadata.clone(),
                 created_at: now.clone(),
                 updated_at: now.clone(),
+                version: None,
+                is_draft: 1,
             });
         }
     }

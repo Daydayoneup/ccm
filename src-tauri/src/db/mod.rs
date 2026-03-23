@@ -12,6 +12,7 @@ pub mod migration;
 pub mod env;
 pub mod registry;
 pub mod library_plugin;
+pub mod versions;
 
 #[derive(Clone)]
 pub struct Database {
@@ -73,7 +74,19 @@ impl Database {
                 content_hash    TEXT,
                 metadata        TEXT,
                 created_at      TEXT NOT NULL,
-                updated_at      TEXT NOT NULL
+                updated_at      TEXT NOT NULL,
+                version         TEXT,
+                is_draft        INTEGER DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS resource_versions (
+                id              TEXT PRIMARY KEY,
+                resource_id     TEXT NOT NULL,
+                version         TEXT NOT NULL,
+                changelog       TEXT,
+                content_hash    TEXT NOT NULL,
+                created_at      TEXT NOT NULL,
+                FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE,
+                UNIQUE(resource_id, version)
             );
             CREATE TABLE IF NOT EXISTS projects (
                 id              TEXT PRIMARY KEY,
@@ -290,6 +303,42 @@ impl Database {
         Ok(())
     }
 
+    pub fn migrate_v4_to_v5(&self) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let current_version: Option<String> = conn
+            .query_row("SELECT value FROM app_settings WHERE key = 'schema_version'", [], |row| row.get(0))
+            .ok();
+        if current_version.as_deref() == Some("5") {
+            return Ok(());
+        }
+        let has_version: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('resources') WHERE name='version'", [], |row| row.get(0)
+        ).unwrap_or(0);
+        if has_version == 0 {
+            conn.execute("ALTER TABLE resources ADD COLUMN version TEXT", []).map_err(|e| e.to_string())?;
+        }
+        let has_draft: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('resources') WHERE name='is_draft'", [], |row| row.get(0)
+        ).unwrap_or(0);
+        if has_draft == 0 {
+            conn.execute("ALTER TABLE resources ADD COLUMN is_draft INTEGER DEFAULT 1", []).map_err(|e| e.to_string())?;
+        }
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS resource_versions (
+                id              TEXT PRIMARY KEY,
+                resource_id     TEXT NOT NULL,
+                version         TEXT NOT NULL,
+                changelog       TEXT,
+                content_hash    TEXT NOT NULL,
+                created_at      TEXT NOT NULL,
+                FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE,
+                UNIQUE(resource_id, version)
+            );"
+        ).map_err(|e| e.to_string())?;
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('schema_version', '5')", []).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn migrate_v3_to_v4(&self) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let current_version: Option<String> = conn
@@ -491,5 +540,36 @@ mod tests {
         db.migrate_v3_to_v4().unwrap();
         let ver = db.get_setting("schema_version").unwrap();
         assert_eq!(ver, Some("4".to_string()));
+    }
+
+    #[test]
+    fn test_migrate_v4_to_v5_adds_version_columns() {
+        let db = Database::new_in_memory().unwrap();
+        db.migrate_v4_to_v5().unwrap();
+        {
+            let conn = db.conn.lock().unwrap();
+            let has_version: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('resources') WHERE name='version'",
+                [], |row| row.get(0)
+            ).unwrap();
+            assert_eq!(has_version, 1);
+            let has_draft: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('resources') WHERE name='is_draft'",
+                [], |row| row.get(0)
+            ).unwrap();
+            assert_eq!(has_draft, 1);
+            let _count: i64 = conn.query_row("SELECT COUNT(*) FROM resource_versions", [], |row| row.get(0)).unwrap();
+        }
+        let ver = db.get_setting("schema_version").unwrap();
+        assert_eq!(ver, Some("5".to_string()));
+    }
+
+    #[test]
+    fn test_migrate_v4_to_v5_idempotent() {
+        let db = Database::new_in_memory().unwrap();
+        db.migrate_v4_to_v5().unwrap();
+        db.migrate_v4_to_v5().unwrap();
+        let ver = db.get_setting("schema_version").unwrap();
+        assert_eq!(ver, Some("5".to_string()));
     }
 }

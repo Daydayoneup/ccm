@@ -117,7 +117,15 @@ export function PluginDetailPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => navigate(`/editor?file=${encodeURIComponent(resource.source_path)}`)}
+                  onClick={() => {
+                    const filePath = resource.resource_type === 'skill'
+                      ? `${resource.source_path}/SKILL.md`
+                      : resource.source_path;
+                    const extra = resource.resource_type === 'skill'
+                      ? `&resource_id=${resource.id}&type=skill`
+                      : '';
+                    navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
+                  }}
                   title="Edit"
                 >
                   <Pencil className="size-4" />

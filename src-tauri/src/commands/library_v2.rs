@@ -113,6 +113,8 @@ pub fn create_library_resource(
         metadata: None,
         created_at: now.clone(),
         updated_at: now,
+        version: None,
+        is_draft: 1,
     };
 
     db.insert_resource(&resource).map_err(|e| e.to_string())?;
@@ -350,6 +352,8 @@ mod tests {
             metadata: None,
             created_at: "2026-03-01T00:00:00Z".to_string(),
             updated_at: "2026-03-01T00:00:00Z".to_string(),
+            version: None,
+            is_draft: 1,
         }
     }
 
@@ -367,6 +371,8 @@ mod tests {
             metadata: None,
             created_at: "2026-03-01T00:00:00Z".to_string(),
             updated_at: "2026-03-01T00:00:00Z".to_string(),
+            version: None,
+            is_draft: 1,
         };
         db.insert_resource(&r1).unwrap();
         db.insert_resource(&r2).unwrap();

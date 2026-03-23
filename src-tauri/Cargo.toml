@@ -27,6 +27,8 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 notify = "6"
 axum = "0.8"
 tokio = { version = "1", features = ["net", "macros"] }
+serde_yaml = "0.9"
+semver = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

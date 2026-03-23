@@ -14,6 +14,8 @@ export interface Resource {
   metadata: string | null;
   created_at: string;
   updated_at: string;
+  version: string | null;
+  is_draft: number;
 }
 
 export interface Project {
@@ -134,4 +136,29 @@ export interface LibraryPlugin {
   category: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ResourceVersion {
+  id: string;
+  resource_id: string;
+  version: string;
+  changelog: string | null;
+  content_hash: string;
+  created_at: string;
+}
+
+export interface SkillFrontmatter {
+  name: string | null;
+  description: string | null;
+  disable_model_invocation: boolean | null;
+  user_invocable: boolean | null;
+  allowed_tools: string[] | null;
+  model: string | null;
+  effort: string | null;
+  extra_yaml: string | null;
+}
+
+export interface SkillFrontmatterData {
+  frontmatter: SkillFrontmatter;
+  body: string;
 }

@@ -56,6 +56,8 @@ impl SyncEngine {
                     metadata: None,
                     created_at: now.clone(),
                     updated_at: now,
+                    version: None,
+                    is_draft: 1,
                 };
                 db.insert_resource(&resource).map_err(|e| e.to_string())?;
                 report.inserted += 1;

@@ -157,9 +157,17 @@ export function ProjectDetailPageV2() {
     try {
       const resourceType = activeTab as ResourceType;
       const content = resourceTemplates[resourceType](newName.trim());
-      await createResource(id, resourceType, newName.trim(), content);
+      const resource = await createResource(id, resourceType, newName.trim(), content);
       setCreateOpen(false);
       setNewName('');
+      // Navigate directly to editor
+      const filePath = resource.resource_type === 'skill'
+        ? `${resource.source_path}/SKILL.md`
+        : resource.source_path;
+      const extra = resource.resource_type === 'skill'
+        ? `&resource_id=${resource.id}&type=skill`
+        : '';
+      navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
     } catch (e) {
       console.error('Failed to create resource:', e);
     } finally {
@@ -250,41 +258,32 @@ export function ProjectDetailPageV2() {
         )}
       </div>
 
-      {/* Create dialog */}
+      {/* Create dialog — name only, then navigate to editor */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>
-              Create New {resourceTypeLabels[activeTab as ResourceType] ?? activeTab}
+              New {resourceTypeLabels[activeTab as ResourceType] ?? activeTab}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <label className="text-sm font-medium">Name</label>
-              <Input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder={`my-${activeTab}`}
-                className="mt-1"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newName.trim()) handleCreate();
-                }}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Template Preview</label>
-              <pre className="mt-1 max-h-48 overflow-auto rounded-lg border bg-muted/30 p-3 font-mono text-xs">
-                {activeTab !== 'mcp' && activeTab !== 'permissions' && activeTab !== 'env' && activeTab !== 'files' && resourceTemplates[activeTab as ResourceType](newName.trim() || 'example')}
-              </pre>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setCreateOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleCreate} disabled={!newName.trim() || creating}>
-                {creating ? 'Creating...' : 'Create'}
-              </Button>
-            </div>
+          <div className="py-2">
+            <Input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder={`my-${activeTab}`}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newName.trim()) handleCreate();
+              }}
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleCreate} disabled={!newName.trim() || creating}>
+              {creating ? 'Creating...' : 'Create'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

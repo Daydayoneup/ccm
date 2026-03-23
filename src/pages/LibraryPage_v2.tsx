@@ -162,7 +162,15 @@ export function LibraryPage_v2() {
                       <div
                         key={resource.id}
                         className={`card-glow group cursor-pointer rounded-xl border bg-card p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5 ${borderClasses[resource.resource_type] || ''}`}
-                        onClick={() => navigate(`/editor?file=${encodeURIComponent(resource.source_path)}`)}
+                        onClick={() => {
+                          const filePath = resource.resource_type === 'skill'
+                            ? `${resource.source_path}/SKILL.md`
+                            : resource.source_path;
+                          const extra = resource.resource_type === 'skill'
+                            ? `&resource_id=${resource.id}&type=skill`
+                            : '';
+                          navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
+                        }}
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">

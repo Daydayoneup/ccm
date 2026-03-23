@@ -50,9 +50,15 @@ export function RecentChanges({ resources }: RecentChangesProps) {
           <div
             key={resource.id}
             className="group flex items-center justify-between px-4 py-3 transition-colors hover:bg-accent/30 cursor-pointer"
-            onClick={() =>
-              navigate(`/editor?file=${encodeURIComponent(resource.source_path)}`)
-            }
+            onClick={() => {
+              const filePath = resource.resource_type === 'skill'
+                ? `${resource.source_path}/SKILL.md`
+                : resource.source_path;
+              const extra = resource.resource_type === 'skill'
+                ? `&resource_id=${resource.id}&type=skill`
+                : '';
+              navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
+            }}
           >
             <div className="flex items-center gap-3 min-w-0">
               <div className={`size-2 rounded-full ${typeColors[resource.resource_type]?.split(' ')[0] || 'bg-muted'}`} />

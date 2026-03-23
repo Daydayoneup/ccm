@@ -1,6 +1,7 @@
 pub mod adapters;
 pub mod commands;
 pub mod db;
+pub mod frontmatter;
 pub mod models;
 pub mod git;
 pub mod proxy;
@@ -53,6 +54,7 @@ pub fn run() {
 
             db.migrate_v2_to_v3().map_err(|e| format!("Schema migration failed: {}", e))?;
             db.migrate_v3_to_v4().map_err(|e| format!("Schema migration v3→v4 failed: {}", e))?;
+            db.migrate_v4_to_v5().ok();
 
             // Register SyncState wrapped in Arc for thread sharing
             app.manage(std::sync::Arc::new(sync::state::SyncState::new()));
@@ -128,6 +130,16 @@ pub fn run() {
                 .on_menu_event(move |app, event| {
                     match event.id().as_ref() {
                         "show" => {
+                            // Restore dock icon when window is shown
+                            #[cfg(target_os = "macos")]
+                            {
+                                use objc2::MainThreadMarker;
+                                use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+                                if let Some(mtm) = MainThreadMarker::new() {
+                                    let ns_app = NSApplication::sharedApplication(mtm);
+                                    ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+                                }
+                            }
                             if let Some(window) = app.get_webview_window("main") {
                                 let _ = window.show();
                                 let _ = window.set_focus();
@@ -141,13 +153,23 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Intercept window close → hide to tray
+            // Intercept window close → hide to tray + hide dock icon
             if let Some(window) = app.get_webview_window("main") {
                 let w = window.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
                         let _ = w.hide();
+                        // Hide dock icon when window is hidden
+                        #[cfg(target_os = "macos")]
+                        {
+                            use objc2::MainThreadMarker;
+                            use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+                            if let Some(mtm) = MainThreadMarker::new() {
+                                let ns_app = NSApplication::sharedApplication(mtm);
+                                ns_app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+                            }
+                        }
                     }
                 });
             }
@@ -247,6 +269,13 @@ pub fn run() {
             commands::api::generate_api_token,
             commands::api::get_api_token_status,
             commands::api::toggle_api_server,
+            commands::versions::publish_resource_version,
+            commands::versions::list_resource_versions,
+            commands::versions::rollback_resource_version,
+            commands::frontmatter_cmd::parse_skill_frontmatter,
+            commands::frontmatter_cmd::save_skill_with_frontmatter,
+            commands::frontmatter_cmd::save_skill_raw_content,
+            commands::frontmatter_cmd::get_resource,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

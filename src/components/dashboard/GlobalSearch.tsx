@@ -63,7 +63,13 @@ export function GlobalSearch({ onSearch, results, query }: GlobalSearchProps) {
               className="flex items-center justify-between px-3 py-2 text-sm cursor-pointer hover:bg-accent"
               onClick={() => {
                 setOpen(false);
-                navigate(`/editor?file=${encodeURIComponent(resource.source_path)}`);
+                const filePath = resource.resource_type === 'skill'
+                  ? `${resource.source_path}/SKILL.md`
+                  : resource.source_path;
+                const extra = resource.resource_type === 'skill'
+                  ? `&resource_id=${resource.id}&type=skill`
+                  : '';
+                navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
               }}
             >
               <span className="truncate mr-2">{resource.name}</span>

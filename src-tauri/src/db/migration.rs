@@ -95,6 +95,8 @@ fn migrate_library(db: &Database, index_file: &Path) -> Result<(), String> {
             },
             created_at: old_resource.created_at.clone(),
             updated_at: old_resource.updated_at.clone(),
+            version: None,
+            is_draft: 1,
         };
 
         // Insert (ignore duplicates)

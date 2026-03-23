@@ -194,6 +194,19 @@
 .res-border-mcp_server { border-left: 3px solid oklch(0.72 0.13 220); }
 .res-border-command { border-left: 3px solid oklch(0.72 0.14 60); }
 
+/* ── MDEditor fill — force internal panels to fill container ── */
+/* When MDEditor is inside a flex layout with h-full, its internal
+   content/textarea/preview panels must also fill the available height. */
+.w-md-editor-content {
+  height: calc(100% - 29px) !important; /* 29px = toolbar height */
+}
+.w-md-editor-content .w-md-editor-input,
+.w-md-editor-content .w-md-editor-preview,
+.w-md-editor-content .w-md-editor-area {
+  height: 100% !important;
+  overflow-y: auto !important;
+}
+
 /* ── Scrollbar styling — subtle cyan tint ─────────────── */
 ::-webkit-scrollbar {
   width: 6px;

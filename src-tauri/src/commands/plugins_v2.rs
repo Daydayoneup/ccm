@@ -58,6 +58,8 @@ pub fn scan_plugins(db: State<Database>) -> Result<Vec<Plugin>, String> {
                     metadata: None,
                     created_at: now.clone(),
                     updated_at: now.clone(),
+                    version: None,
+                    is_draft: 1,
                 };
                 let _ = db.insert_resource(&resource);
             }
@@ -87,6 +89,8 @@ pub fn scan_plugins(db: State<Database>) -> Result<Vec<Plugin>, String> {
                     metadata: None,
                     created_at: now.clone(),
                     updated_at: now.clone(),
+                    version: None,
+                    is_draft: 1,
                 };
                 let _ = db.insert_resource(&resource);
             }
@@ -183,6 +187,8 @@ pub fn extract_to_library(
         metadata: None,
         created_at: now.clone(),
         updated_at: now,
+        version: None,
+        is_draft: 1,
     };
 
     db.insert_resource(&library_resource).map_err(|e| e.to_string())?;
@@ -232,6 +238,8 @@ mod tests {
             metadata: None,
             created_at: "2026-03-01T00:00:00Z".to_string(),
             updated_at: "2026-03-01T00:00:00Z".to_string(),
+            version: None,
+            is_draft: 1,
         }
     }
 
@@ -351,6 +359,8 @@ mod tests {
             metadata: None,
             created_at: "2026-03-01T00:00:00Z".to_string(),
             updated_at: "2026-03-01T00:00:00Z".to_string(),
+            version: None,
+            is_draft: 1,
         };
         db.insert_resource(&resource).unwrap();
 

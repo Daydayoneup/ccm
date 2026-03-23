@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import {
-  LayoutDashboard, Globe, FolderGit2, Library, Settings, Search, Terminal,
+  LayoutDashboard, Globe, FolderGit2, Library, Settings, Terminal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProjectStoreV2 } from '@/stores/project-store-v2';
@@ -17,10 +17,10 @@ const navItems = [
 
 interface SidebarProps {
   paletteEnabled: boolean;
-  onOpenPalette: () => void;
+  onOpenPalette?: () => void;
 }
 
-export function Sidebar({ paletteEnabled, onOpenPalette }: SidebarProps) {
+export function Sidebar({ paletteEnabled }: SidebarProps) {
   const navigate = useNavigate();
   const { projects, loadProjects } = useProjectStoreV2();
 
@@ -52,15 +52,6 @@ export function Sidebar({ paletteEnabled, onOpenPalette }: SidebarProps) {
             <p className="text-[10px] leading-none text-sidebar-foreground/50">Config Manager</p>
           </div>
         </div>
-        {paletteEnabled && (
-          <button
-            onClick={onOpenPalette}
-            className="rounded-md p-1.5 text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            title="Quick Launch"
-          >
-            <Search className="size-4" />
-          </button>
-        )}
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 p-3">

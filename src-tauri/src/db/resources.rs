@@ -7,8 +7,8 @@ impl Database {
     pub fn insert_resource(&self, resource: &Resource) -> rusqlite::Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO resources (id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO resources (id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 resource.id,
                 resource.resource_type.as_str(),
@@ -20,6 +20,8 @@ impl Database {
                 resource.metadata,
                 resource.created_at,
                 resource.updated_at,
+                resource.version,
+                resource.is_draft,
             ],
         )?;
         Ok(())
@@ -28,7 +30,7 @@ impl Database {
     pub fn get_resource(&self, id: &str) -> rusqlite::Result<Option<Resource>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at
+            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
              FROM resources WHERE id = ?1",
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
@@ -43,7 +45,7 @@ impl Database {
     pub fn list_resources_by_scope(&self, scope: &ResourceScope) -> rusqlite::Result<Vec<Resource>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at
+            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
              FROM resources WHERE scope = ?1",
         )?;
         let rows = stmt.query_map(params![scope.as_str()], |row| {
@@ -59,7 +61,7 @@ impl Database {
     ) -> rusqlite::Result<Vec<Resource>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at
+            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
              FROM resources WHERE scope = ?1 AND resource_type = ?2",
         )?;
         let rows = stmt.query_map(params![scope.as_str(), resource_type.as_str()], |row| {
@@ -71,17 +73,18 @@ impl Database {
     pub fn update_resource(&self, resource: &Resource) -> rusqlite::Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE resources SET resource_type = ?1, name = ?2, description = ?3, scope = ?4, source_path = ?5, content_hash = ?6, metadata = ?7, updated_at = ?8
-             WHERE id = ?9",
+            "UPDATE resources SET resource_type = ?1, name = ?2, description = ?3, content_hash = ?4, metadata = ?5, updated_at = ?6, source_path = ?7, scope = ?8, version = ?9, is_draft = ?10 WHERE id = ?11",
             params![
                 resource.resource_type.as_str(),
                 resource.name,
                 resource.description,
-                resource.scope.as_str(),
-                resource.source_path,
                 resource.content_hash,
                 resource.metadata,
                 resource.updated_at,
+                resource.source_path,
+                resource.scope.as_str(),
+                resource.version,
+                resource.is_draft,
                 resource.id,
             ],
         )?;
@@ -97,7 +100,7 @@ impl Database {
     pub fn get_resource_by_path(&self, source_path: &str) -> rusqlite::Result<Option<Resource>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at
+            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
              FROM resources WHERE source_path = ?1",
         )?;
         let mut rows = stmt.query_map(params![source_path], |row| {
@@ -121,7 +124,7 @@ impl Database {
     pub fn list_recent_resources(&self, limit: usize) -> rusqlite::Result<Vec<Resource>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at
+            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
              FROM resources ORDER BY updated_at DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit as i64], |row| {
@@ -134,7 +137,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let pattern = format!("%{}%", query);
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at
+            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
              FROM resources WHERE name LIKE ?1 ORDER BY updated_at DESC LIMIT 50",
         )?;
         let rows = stmt.query_map(params![pattern], |row| {
@@ -157,6 +160,8 @@ impl Database {
             metadata: row.get(7)?,
             created_at: row.get(8)?,
             updated_at: row.get(9)?,
+            version: row.get(10)?,
+            is_draft: row.get::<_, Option<i32>>(11)?.unwrap_or(1),
         })
     }
 }
@@ -178,6 +183,8 @@ mod tests {
             metadata: None,
             created_at: "2026-03-01T00:00:00Z".to_string(),
             updated_at: "2026-03-01T00:00:00Z".to_string(),
+            version: None,
+            is_draft: 1,
         }
     }
 

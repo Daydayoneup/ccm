@@ -61,7 +61,7 @@ export async function fileContentHash(path: string): Promise<string> {
 
 // --- Registry Commands ---
 
-import type { Registry, Resource, ResourceLink } from '@/types/v2';
+import type { Registry, Resource, ResourceLink, ResourceVersion, SkillFrontmatter, SkillFrontmatterData } from '@/types/v2';
 
 /** List all registries */
 export async function listRegistries(): Promise<Registry[]> {
@@ -166,4 +166,51 @@ export async function removeResourceFromLibraryPlugin(pluginId: string, resource
 
 export async function getLibraryPluginResources(pluginId: string): Promise<Resource[]> {
   return invoke<Resource[]>('get_library_plugin_resources', { pluginId });
+}
+
+// --- Resource Commands ---
+
+/** Fetch a single resource by ID. */
+export async function getResource(id: string): Promise<Resource | null> {
+  return invoke<Resource | null>('get_resource', { id });
+}
+
+// --- Version Management Commands ---
+
+/** Publish a new version for a resource. */
+export async function publishResourceVersion(resourceId: string, version: string, changelog?: string): Promise<ResourceVersion> {
+  return invoke<ResourceVersion>('publish_resource_version', { resourceId, version, changelog });
+}
+
+/** List all versions for a resource. */
+export async function listResourceVersions(resourceId: string): Promise<ResourceVersion[]> {
+  return invoke<ResourceVersion[]>('list_resource_versions', { resourceId });
+}
+
+/** Roll back a resource to a specific version. */
+export async function rollbackResourceVersion(resourceId: string, version: string): Promise<void> {
+  return invoke<void>('rollback_resource_version', { resourceId, version });
+}
+
+// --- Frontmatter Commands ---
+
+/** Parse YAML frontmatter from a skill file. */
+export async function parseSkillFrontmatter(filePath: string): Promise<SkillFrontmatterData> {
+  return invoke<SkillFrontmatterData>('parse_skill_frontmatter', { filePath });
+}
+
+/** Save a skill file with updated frontmatter and body. */
+export async function saveSkillWithFrontmatter(
+  resourceId: string, filePath: string, frontmatterData: SkillFrontmatter, body: string
+): Promise<void> {
+  return invoke<void>('save_skill_with_frontmatter', { resourceId, filePath, frontmatterData, body });
+}
+
+/** Save raw skill file content (frontmatter + body). Backend parses frontmatter best-effort. */
+export async function saveSkillRawContent(
+  resourceId: string,
+  filePath: string,
+  content: string,
+): Promise<void> {
+  return invoke<void>('save_skill_raw_content', { resourceId, filePath, content });
 }

@@ -296,6 +296,8 @@ impl ResourceAdapter for HookAdapter {
                     metadata: Some(metadata_str),
                     created_at: now.clone(),
                     updated_at: now.clone(),
+                    version: None,
+                    is_draft: 1,
                 });
             }
         }
@@ -335,6 +337,8 @@ mod tests {
             metadata: metadata.map(|s| s.to_string()),
             created_at: Utc::now().to_rfc3339(),
             updated_at: Utc::now().to_rfc3339(),
+            version: None,
+            is_draft: 1,
         }
     }
 

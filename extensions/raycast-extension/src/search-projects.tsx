@@ -119,6 +119,12 @@ export default function SearchProjects() {
                   }
                 }}
               />
+              <Action.Open
+                title="Open in Finder"
+                target={project.path}
+                icon={Icon.Finder}
+                shortcut={{ modifiers: ["cmd"], key: "o" }}
+              />
               <Action.CopyToClipboard
                 title="Copy Path"
                 content={project.path}

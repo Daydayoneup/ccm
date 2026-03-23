@@ -275,6 +275,8 @@ pub fn rescan_project(
                 metadata: resource.metadata,
                 created_at: now.clone(),
                 updated_at: now.clone(),
+                version: None,
+                is_draft: 1,
             };
             if db.insert_resource(&new_resource).is_ok() {
                 added += 1;
@@ -480,6 +482,8 @@ pub fn create_project_resource(
         metadata: None,
         created_at: now.clone(),
         updated_at: now,
+        version: None,
+        is_draft: 1,
     };
 
     db.insert_resource(&resource).map_err(|e| e.to_string())?;
@@ -569,6 +573,8 @@ pub fn publish_to_library(
         metadata: None,
         created_at: now.clone(),
         updated_at: now.clone(),
+        version: None,
+        is_draft: 1,
     };
 
     db.insert_resource(&library_resource).map_err(|e| e.to_string())?;
