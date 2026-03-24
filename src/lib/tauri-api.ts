@@ -214,3 +214,13 @@ export async function saveSkillRawContent(
 ): Promise<void> {
   return invoke<void>('save_skill_raw_content', { resourceId, filePath, content });
 }
+
+/** Rename a file or directory from oldPath to newPath. */
+export async function renamePath(oldPath: string, newPath: string): Promise<void> {
+  await invoke('rename_path', { oldPath, newPath });
+}
+
+/** Fork a library resource to create an independent copy, optionally with a new name. */
+export async function forkToLibrary(resourceId: string, newName?: string): Promise<Resource> {
+  return invoke<Resource>('fork_to_library', { resourceId, newName: newName ?? null });
+}

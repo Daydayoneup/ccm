@@ -301,6 +301,83 @@ pub fn check_link_health(db: State<Database>) -> Result<Vec<LinkHealthInfo>, Str
     Ok(results)
 }
 
+/// Fork a registry resource to the local library (copies the entire skill directory)
+#[tauri::command]
+pub fn fork_to_library(
+    db: State<Database>,
+    resource_id: String,
+    new_name: Option<String>,
+) -> Result<Resource, String> {
+    let resource = db.get_resource(&resource_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Resource not found: {}", resource_id))?;
+
+    if resource.scope != ResourceScope::Registry {
+        return Err("Only registry resources can be forked to library".to_string());
+    }
+
+    let name = new_name.unwrap_or_else(|| resource.name.clone());
+
+    // Determine library target path
+    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+    let type_dir = match resource.resource_type {
+        ResourceType::Skill => "skills",
+        ResourceType::Agent => "agents",
+        ResourceType::Rule => "rules",
+        ResourceType::Command => "commands",
+        ResourceType::Hook => "hooks",
+        _ => return Err("Unsupported resource type for fork".to_string()),
+    };
+    let lib_path = home.join(".claude-manager").join("library").join(type_dir);
+    fs::create_dir_all(&lib_path).map_err(|e| e.to_string())?;
+
+    let target_path = lib_path.join(&name);
+    if target_path.exists() {
+        return Err(format!("Resource '{}' already exists in library. Choose a different name.", name));
+    }
+
+    // Copy source to library
+    let source = Path::new(&resource.source_path);
+    if source.is_dir() {
+        crate::adapters::file_based::copy_dir_recursive(source, &target_path)
+            .map_err(|e| format!("Failed to copy: {}", e))?;
+    } else {
+        fs::copy(source, &target_path)
+            .map_err(|e| format!("Failed to copy: {}", e))?;
+    }
+
+    // Compute content hash
+    let content_hash = if target_path.is_dir() {
+        let skill_md = target_path.join("SKILL.md");
+        if skill_md.exists() {
+            crate::scanner::compute_file_hash(skill_md.to_str().unwrap_or_default())
+        } else {
+            None
+        }
+    } else {
+        crate::scanner::compute_file_hash(target_path.to_str().unwrap_or_default())
+    };
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let new_resource = Resource {
+        id: uuid::Uuid::new_v4().to_string(),
+        resource_type: resource.resource_type.clone(),
+        name: name.clone(),
+        description: resource.description.clone(),
+        scope: ResourceScope::Library,
+        source_path: target_path.to_string_lossy().to_string(),
+        content_hash,
+        metadata: None,
+        created_at: now.clone(),
+        updated_at: now,
+        version: None,
+        is_draft: 1,
+    };
+
+    db.insert_resource(&new_resource).map_err(|e| e.to_string())?;
+    Ok(new_resource)
+}
+
 /// Check whether a config_merge link's entry still exists in the config file.
 fn check_config_merge_health(link: &ResourceLink) -> Result<bool, String> {
     let config_key = match &link.config_key {

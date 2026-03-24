@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Globe, FolderGit2, Package, Library, CloudCog } from 'lucide-react';
 import type { DashboardStats } from '@/types/v2';
+import { useI18n } from '@/i18n/provider';
 
 interface StatsCardsProps {
   stats: DashboardStats | null;
@@ -9,57 +10,53 @@ interface StatsCardsProps {
 const cards = [
   {
     key: 'global',
-    label: 'Global Resources',
+    labelKey: 'dashboard.metrics.global',
     icon: Globe,
     countKey: 'global_count' as const,
     path: '/global',
-    accent: 'from-res-skill/20 to-transparent',
     borderColor: 'border-l-res-skill',
     iconColor: 'text-res-skill',
   },
   {
     key: 'projects',
-    label: 'Projects',
+    labelKey: 'dashboard.metrics.projects',
     icon: FolderGit2,
     countKey: 'project_count' as const,
     path: '/projects',
-    accent: 'from-res-agent/20 to-transparent',
     borderColor: 'border-l-res-agent',
     iconColor: 'text-res-agent',
   },
   {
     key: 'plugins',
-    label: 'Plugins',
+    labelKey: 'dashboard.metrics.plugins',
     icon: Package,
     countKey: 'plugin_count' as const,
     path: '/global?tab=plugin',
-    accent: 'from-res-rule/20 to-transparent',
     borderColor: 'border-l-res-rule',
     iconColor: 'text-res-rule',
   },
   {
     key: 'library',
-    label: 'Library',
+    labelKey: 'dashboard.metrics.library',
     icon: Library,
     countKey: 'library_count' as const,
     path: '/library',
-    accent: 'from-res-hook/20 to-transparent',
     borderColor: 'border-l-res-hook',
     iconColor: 'text-res-hook',
   },
   {
     key: 'registries',
-    label: 'Registries',
+    labelKey: 'dashboard.metrics.registries',
     icon: CloudCog,
     countKey: 'registry_count' as const,
     path: '/registries',
-    accent: 'from-res-mcp/20 to-transparent',
     borderColor: 'border-l-res-mcp',
     iconColor: 'text-res-mcp',
   },
 ];
 
 export function StatsCards({ stats }: StatsCardsProps) {
+  const { t, formatNumber } = useI18n();
   const navigate = useNavigate();
 
   return (
@@ -71,18 +68,18 @@ export function StatsCards({ stats }: StatsCardsProps) {
         return (
           <div
             key={card.key}
-            className={`card-glow group cursor-pointer rounded-xl border border-l-[3px] ${card.borderColor} bg-card p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/5`}
+            className={`card-glow group cursor-pointer rounded-md border border-l-[3px] ${card.borderColor} bg-card/90 p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_50px_rgba(15,23,42,0.10)]`}
             onClick={() => navigate(card.path)}
           >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {card.label}
+              <span className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                {t(card.labelKey)}
               </span>
-              <div className={`rounded-lg bg-muted p-1.5 ${card.iconColor} transition-colors group-hover:bg-primary/10`}>
+              <div className={`rounded-sm bg-panel p-2 ${card.iconColor} transition-colors group-hover:bg-primary/10`}>
                 <Icon className="size-4" />
               </div>
             </div>
-            <div className="mt-3 text-3xl font-bold tracking-tight">{count}</div>
+            <div className="mt-4 text-3xl font-semibold tracking-tight">{formatNumber(count)}</div>
           </div>
         );
       })}

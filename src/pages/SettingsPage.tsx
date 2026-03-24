@@ -1,16 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Button } from '@/components/ui/button';
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from '@/components/ui/card';
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Command as CommandIcon,
+  Database,
+  FolderOpen,
+  Globe,
+  Info,
+  Loader2,
+  RefreshCw,
+  Terminal,
+  Variable,
+  X,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, Database, FolderOpen, Info, Terminal, Variable, Globe, Loader2, ChevronDown, ChevronUp, Check, X, Command as CommandIcon } from 'lucide-react';
-import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -21,13 +28,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
+import { PageHeader, PageShell } from '@/components/layout/PageShell';
+import { ApiSettingsCard } from '@/components/settings/ApiSettingsCard';
+import { EnvVarTable } from '@/components/shared/EnvVarTable';
+import { useI18n, type Locale } from '@/i18n/provider';
 import { cn } from '@/lib/utils';
 import { useSyncStore } from '@/stores/sync-store';
-import { EnvVarTable } from '@/components/shared/EnvVarTable';
 import type { MergedEnvVar } from '@/types/v2';
-import { ApiSettingsCard } from '@/components/settings/ApiSettingsCard';
 
 export function SettingsPage() {
+  const { t, locale, setLocale } = useI18n();
   const { syncStatus, syncProgress, syncError, lastSynced } = useSyncStore();
   const [terminal, setTerminal] = useState('Terminal');
   const [paletteEnabled, setPaletteEnabled] = useState(false);
@@ -48,201 +59,110 @@ export function SettingsPage() {
 
   useEffect(() => {
     invoke<string>('get_terminal_preference').then(setTerminal);
-  }, []);
-
-  useEffect(() => {
     invoke<string | null>('get_app_setting', { key: 'enable_command_palette' }).then(
-      (val) => setPaletteEnabled(val === 'true')
+      (value) => setPaletteEnabled(value === 'true')
     );
     invoke<string | null>('get_app_setting', { key: 'command_palette_shortcut' }).then(
-      (val) => { if (val) setPaletteShortcut(val); }
+      (value) => { if (value) setPaletteShortcut(value); }
     );
-  }, []);
-
-  useEffect(() => {
-    loadEnvVars();
-  }, []);
-
-  useEffect(() => {
     invoke<any>('get_proxy_config').then((config) => {
-      if (config) {
-        setProxyEnabled(config.enabled);
-        setProxyType(config.proxy_type);
-        setProxyHost(config.host);
-        setProxyPort(config.port);
-        setProxyUsername(config.username ?? '');
-        setProxyPassword(config.password ?? '');
-        if (config.username || config.password) setShowAuth(true);
-      }
+      if (!config) return;
+      setProxyEnabled(config.enabled);
+      setProxyType(config.proxy_type);
+      setProxyHost(config.host);
+      setProxyPort(config.port);
+      setProxyUsername(config.username ?? '');
+      setProxyPassword(config.password ?? '');
+      if (config.username || config.password) setShowAuth(true);
     });
+    invoke<any[]>('list_env_vars', { projectId: null })
+      .then((vars) => setEnvVars(vars.map((item) => ({ ...item, scope: 'global' as const }))))
+      .catch((error) => console.error('Failed to load env vars:', error));
   }, []);
 
-  const loadEnvVars = async () => {
-    try {
-      const vars = await invoke<any[]>('list_env_vars', { projectId: null });
-      setEnvVars(vars.map((v) => ({ ...v, scope: 'global' as const })));
-    } catch (err) {
-      console.error('Failed to load env vars:', err);
-    }
-  };
-
-  const handleAddEnvVar = async (key: string, value: string) => {
-    await invoke('set_env_var', { projectId: null, key, value });
-    await loadEnvVars();
-  };
-
-  const handleDeleteEnvVar = async (id: string) => {
-    await invoke('delete_env_var', { id });
-    await loadEnvVars();
-  };
-
-  const handleTerminalChange = async (value: string) => {
-    setTerminal(value);
-    await invoke('set_terminal_preference', { terminal: value });
-  };
-
-  const handleSaveProxy = async () => {
-    setProxySaving(true);
-    setProxySaved(false);
-    try {
-      await invoke('save_proxy_config', {
-        config: {
-          enabled: proxyEnabled,
-          proxy_type: proxyType,
-          host: proxyHost,
-          port: proxyPort,
-          username: proxyUsername || null,
-          password: proxyPassword || null,
-        },
-      });
-      setProxySaved(true);
-      setTimeout(() => setProxySaved(false), 3000);
-    } catch (err) {
-      console.error('Failed to save proxy config:', err);
-    } finally {
-      setProxySaving(false);
-    }
-  };
-
-  const handleTestProxy = async () => {
-    setProxyTesting(true);
-    setProxyTestResult(null);
-    try {
-      await invoke('save_proxy_config', {
-        config: {
-          enabled: true,
-          proxy_type: proxyType,
-          host: proxyHost,
-          port: proxyPort,
-          username: proxyUsername || null,
-          password: proxyPassword || null,
-        },
-      });
-      const message = await invoke<string>('test_proxy');
-      setProxyTestResult({ success: true, message });
-    } catch (err) {
-      setProxyTestResult({ success: false, message: String(err) });
-    } finally {
-      setProxyTesting(false);
-    }
-  };
-
-  const handlePaletteToggle = async (enabled: boolean) => {
-    setPaletteEnabled(enabled);
-    await invoke('set_app_setting', { key: 'enable_command_palette', value: enabled ? 'true' : 'false' });
-    window.dispatchEvent(new Event('settings-changed'));
-  };
-
-  const handleShortcutRecord = (e: React.KeyboardEvent) => {
-    if (!recordingShortcut) return;
-    e.preventDefault();
-    const parts: string[] = [];
-    if (e.metaKey) parts.push('Meta');
-    if (e.ctrlKey) parts.push('Ctrl');
-    if (e.shiftKey) parts.push('Shift');
-    if (e.altKey) parts.push('Alt');
-    if (['Meta', 'Control', 'Shift', 'Alt'].includes(e.key)) return;
-    parts.push(e.key.toLowerCase());
-    const shortcutVal = parts.join('+');
-    setPaletteShortcut(shortcutVal);
-    setRecordingShortcut(false);
-    invoke('set_app_setting', { key: 'command_palette_shortcut', value: shortcutVal });
-    window.dispatchEvent(new Event('settings-changed'));
-  };
-
-  const formatShortcut = (s: string) => {
-    return s
-      .replace(/Meta/i, '⌘')
-      .replace(/Ctrl/i, '⌃')
-      .replace(/Shift/i, '⇧')
-      .replace(/Alt/i, '⌥')
-      .replace(/\+/g, '')
-      .replace(/([a-z])$/i, (m) => m.toUpperCase());
-  };
-
-  const handleSync = async () => {
-    try {
-      const result = await invoke<{ status: string }>('full_sync');
-      if (result.status === 'queued') {
-        // Already running, queued for re-run — UI will update via events
-      }
-    } catch (err) {
-      console.error('Failed to trigger sync:', err);
-    }
-  };
+  const formatShortcut = (shortcut: string) => shortcut
+    .replace(/Meta/i, '⌘')
+    .replace(/Ctrl/i, '⌃')
+    .replace(/Shift/i, '⇧')
+    .replace(/Alt/i, '⌥')
+    .replace(/\+/g, '')
+    .replace(/([a-z])$/i, (match) => match.toUpperCase());
 
   return (
-    <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Application configuration and maintenance
-        </p>
-      </div>
+    <PageShell className="gap-5">
+      <PageHeader
+        eyebrow={t('nav.settings')}
+        title={t('settings.title')}
+        description={t('settings.subtitle')}
+      />
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Globe className="size-5" />
+            <CardTitle>{t('settings.language')}</CardTitle>
+          </div>
+          <CardDescription>{t('settings.languageDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Select value={locale} onValueChange={(value) => setLocale(value as Locale)}>
+            <SelectTrigger className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="system">{t('settings.localeSystem')}</SelectItem>
+              <SelectItem value="zh-CN">{t('settings.localeZhCN')}</SelectItem>
+              <SelectItem value="en">{t('settings.localeEn')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
             <RefreshCw className="size-5" />
-            <CardTitle>Sync</CardTitle>
+            <CardTitle>{t('settings.sync')}</CardTitle>
           </div>
-          <CardDescription>
-            Synchronize project data and resource indexes
-          </CardDescription>
+          <CardDescription>{t('settings.syncDescription')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4">
-            <Button onClick={handleSync} disabled={syncStatus === 'queued'} size="sm">
-              <RefreshCw
-                className={`mr-2 size-4 ${syncStatus === 'running' ? 'animate-spin' : ''}`}
-              />
+            <Button
+              onClick={async () => {
+                try {
+                  await invoke('full_sync');
+                } catch (error) {
+                  console.error('Failed to trigger sync:', error);
+                }
+              }}
+              disabled={syncStatus === 'queued'}
+              size="sm"
+            >
+              <RefreshCw className={`mr-2 size-4 ${syncStatus === 'running' ? 'animate-spin' : ''}`} />
               {syncStatus === 'running'
-                ? 'Syncing...'
+                ? t('common.syncing')
                 : syncStatus === 'queued'
-                  ? 'Queued...'
-                  : 'Run Full Sync'}
+                  ? t('settings.queued')
+                  : t('settings.runFullSync')}
             </Button>
-            {lastSynced && (
-              <span className="text-sm text-muted-foreground">
-                Last synced: {lastSynced}
-              </span>
-            )}
+            {lastSynced ? <span className="text-sm text-muted-foreground">{t('settings.lastSynced', { value: lastSynced })}</span> : null}
           </div>
-          {syncStatus === 'running' && syncProgress && (
+          {syncStatus === 'running' && syncProgress ? (
             <div className="rounded-md border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-700 dark:text-blue-400">
               {syncProgress.message}
             </div>
-          )}
-          {syncError && (
+          ) : null}
+          {syncError ? (
             <div className="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
-              Sync failed: {syncError}
+              {t('settings.syncFailed', { message: syncError })}
             </div>
-          )}
-          {syncStatus === 'idle' && !syncError && lastSynced && (
+          ) : null}
+          {syncStatus === 'idle' && !syncError && lastSynced ? (
             <div className="rounded-md border border-green-500/30 bg-green-500/10 p-3 text-sm text-green-700 dark:text-green-400">
-              Sync completed successfully.
+              {t('settings.syncSuccess')}
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
@@ -251,104 +171,124 @@ export function SettingsPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Globe className="size-5" />
-              <CardTitle>Network Proxy</CardTitle>
+              <CardTitle>{t('settings.proxy')}</CardTitle>
             </div>
             <Switch checked={proxyEnabled} onCheckedChange={setProxyEnabled} />
           </div>
-          <CardDescription>
-            Configure proxy for git operations (registry sync)
-          </CardDescription>
+          <CardDescription>{t('settings.proxyDescription')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-[1fr_200px_1fr] gap-4">
             <div className="space-y-2">
-              <Label>Type</Label>
+              <Label>{t('settings.proxyType')}</Label>
               <Select value={proxyType} onValueChange={setProxyType} disabled={!proxyEnabled}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="http">HTTP/HTTPS</SelectItem>
                   <SelectItem value="socks5">SOCKS5</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2 col-span-1">
-              <Label>Host</Label>
-              <Input
-                placeholder="127.0.0.1"
-                value={proxyHost}
-                onChange={(e) => setProxyHost(e.target.value)}
-                disabled={!proxyEnabled}
-              />
+            <div className="space-y-2">
+              <Label>{t('settings.proxyHost')}</Label>
+              <Input placeholder="127.0.0.1" value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} disabled={!proxyEnabled} />
             </div>
             <div className="space-y-2">
-              <Label>Port</Label>
-              <Input
-                placeholder="7890"
-                value={proxyPort}
-                onChange={(e) => setProxyPort(e.target.value)}
-                disabled={!proxyEnabled}
-              />
+              <Label>{t('settings.proxyPort')}</Label>
+              <Input placeholder="7890" value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} disabled={!proxyEnabled} />
             </div>
           </div>
 
           <button
             type="button"
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
             onClick={() => setShowAuth(!showAuth)}
             disabled={!proxyEnabled}
           >
             {showAuth ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-            Authentication (optional)
+            {t('settings.proxyAuth')}
           </button>
 
-          {showAuth && (
+          {showAuth ? (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Username</Label>
-                <Input
-                  placeholder="username"
-                  value={proxyUsername}
-                  onChange={(e) => setProxyUsername(e.target.value)}
-                  disabled={!proxyEnabled}
-                />
+                <Label>{t('settings.proxyUsername')}</Label>
+                <Input placeholder="username" value={proxyUsername} onChange={(e) => setProxyUsername(e.target.value)} disabled={!proxyEnabled} />
               </div>
               <div className="space-y-2">
-                <Label>Password</Label>
-                <Input
-                  type="password"
-                  placeholder="password"
-                  value={proxyPassword}
-                  onChange={(e) => setProxyPassword(e.target.value)}
-                  disabled={!proxyEnabled}
-                />
+                <Label>{t('settings.proxyPassword')}</Label>
+                <Input type="password" placeholder="password" value={proxyPassword} onChange={(e) => setProxyPassword(e.target.value)} disabled={!proxyEnabled} />
               </div>
             </div>
-          )}
+          ) : null}
 
           <div className="flex items-center gap-3">
-            <Button size="sm" onClick={handleSaveProxy} disabled={!proxyEnabled || proxySaving}>
+            <Button
+              size="sm"
+              onClick={async () => {
+                setProxySaving(true);
+                setProxySaved(false);
+                try {
+                  await invoke('save_proxy_config', {
+                    config: {
+                      enabled: proxyEnabled,
+                      proxy_type: proxyType,
+                      host: proxyHost,
+                      port: proxyPort,
+                      username: proxyUsername || null,
+                      password: proxyPassword || null,
+                    },
+                  });
+                  setProxySaved(true);
+                  setTimeout(() => setProxySaved(false), 3000);
+                } finally {
+                  setProxySaving(false);
+                }
+              }}
+              disabled={!proxyEnabled || proxySaving}
+            >
               {proxySaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-              Save
+              {t('common.save')}
             </Button>
             <Button
               size="sm"
               variant="outline"
-              onClick={handleTestProxy}
+              onClick={async () => {
+                setProxyTesting(true);
+                setProxyTestResult(null);
+                try {
+                  await invoke('save_proxy_config', {
+                    config: {
+                      enabled: true,
+                      proxy_type: proxyType,
+                      host: proxyHost,
+                      port: proxyPort,
+                      username: proxyUsername || null,
+                      password: proxyPassword || null,
+                    },
+                  });
+                  const message = await invoke<string>('test_proxy');
+                  setProxyTestResult({ success: true, message });
+                } catch (error) {
+                  setProxyTestResult({ success: false, message: String(error) });
+                } finally {
+                  setProxyTesting(false);
+                }
+              }}
               disabled={!proxyEnabled || proxyTesting || !proxyHost || !proxyPort}
             >
               {proxyTesting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-              Test Connection
+              {t('settings.testConnection')}
             </Button>
-            {proxySaved && (
+            {proxySaved ? (
               <span className="flex items-center gap-1 text-sm text-green-600">
-                <Check className="size-4" /> Saved
+                <Check className="size-4" />
+                {t('settings.saved')}
               </span>
-            )}
+            ) : null}
           </div>
 
-          {proxyTestResult && (
+          {proxyTestResult ? (
             <div
               className={`rounded-md border p-3 text-sm ${
                 proxyTestResult.success
@@ -356,57 +296,71 @@ export function SettingsPage() {
                   : 'border-destructive bg-destructive/10 text-destructive'
               }`}
             >
-              {proxyTestResult.success ? <Check className="inline size-4 mr-1" /> : <X className="inline size-4 mr-1" />}
+              {proxyTestResult.success ? <Check className="mr-1 inline size-4" /> : <X className="mr-1 inline size-4" />}
               {proxyTestResult.message}
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
       <ApiSettingsCard />
 
-      {/* Quick Launch */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
             <CommandIcon className="size-4 text-primary" />
-            <CardTitle className="text-base">Quick Launch</CardTitle>
+            <CardTitle className="text-base">{t('settings.quickLaunch')}</CardTitle>
           </div>
-          <CardDescription>
-            Command Palette for fast project search and shell launch
-          </CardDescription>
+          <CardDescription>{t('settings.quickLaunchDescription')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
-            <Label htmlFor="palette-toggle">Enable Command Palette</Label>
+            <Label htmlFor="palette-toggle">{t('settings.enableCommandPalette')}</Label>
             <Switch
               id="palette-toggle"
               checked={paletteEnabled}
-              onCheckedChange={handlePaletteToggle}
+              onCheckedChange={async (enabled) => {
+                setPaletteEnabled(enabled);
+                await invoke('set_app_setting', { key: 'enable_command_palette', value: enabled ? 'true' : 'false' });
+                window.dispatchEvent(new Event('settings-changed'));
+              }}
             />
           </div>
-          {paletteEnabled && (
+          {paletteEnabled ? (
             <div className="space-y-2">
-              <Label>Shortcut</Label>
+              <Label>{t('settings.shortcut')}</Label>
               <div className="flex items-center gap-2">
                 <div
                   tabIndex={0}
-                  onKeyDown={handleShortcutRecord}
+                  onKeyDown={(e) => {
+                    if (!recordingShortcut) return;
+                    e.preventDefault();
+                    const parts: string[] = [];
+                    if (e.metaKey) parts.push('Meta');
+                    if (e.ctrlKey) parts.push('Ctrl');
+                    if (e.shiftKey) parts.push('Shift');
+                    if (e.altKey) parts.push('Alt');
+                    if (['Meta', 'Control', 'Shift', 'Alt'].includes(e.key)) return;
+                    parts.push(e.key.toLowerCase());
+                    const value = parts.join('+');
+                    setPaletteShortcut(value);
+                    setRecordingShortcut(false);
+                    invoke('set_app_setting', { key: 'command_palette_shortcut', value });
+                    window.dispatchEvent(new Event('settings-changed'));
+                  }}
                   onFocus={() => setRecordingShortcut(true)}
                   onBlur={() => setRecordingShortcut(false)}
                   className={cn(
-                    'flex h-9 w-32 items-center justify-center rounded-md border text-sm font-mono cursor-pointer transition-colors',
-                    recordingShortcut
-                      ? 'border-primary bg-primary/5 text-primary'
-                      : 'bg-muted text-foreground'
+                    'flex h-9 w-32 cursor-pointer items-center justify-center rounded-md border text-sm font-mono transition-colors',
+                    recordingShortcut ? 'border-primary bg-primary/5 text-primary' : 'bg-muted text-foreground'
                   )}
                 >
-                  {recordingShortcut ? 'Press keys...' : formatShortcut(paletteShortcut)}
+                  {recordingShortcut ? t('settings.pressKeys') : formatShortcut(paletteShortcut)}
                 </div>
-                <span className="text-xs text-muted-foreground">Click to change</span>
+                <span className="text-xs text-muted-foreground">{t('settings.clickToChange')}</span>
               </div>
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
@@ -414,17 +368,19 @@ export function SettingsPage() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Terminal className="size-5" />
-            <CardTitle>Terminal</CardTitle>
+            <CardTitle>{t('settings.terminal')}</CardTitle>
           </div>
-          <CardDescription>
-            Choose which terminal app to use when launching Claude
-          </CardDescription>
+          <CardDescription>{t('settings.terminalDescription')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Select value={terminal} onValueChange={handleTerminalChange}>
-            <SelectTrigger className="w-48">
-              <SelectValue />
-            </SelectTrigger>
+          <Select
+            value={terminal}
+            onValueChange={async (value) => {
+              setTerminal(value);
+              await invoke('set_terminal_preference', { terminal: value });
+            }}
+          >
+            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="Terminal">Terminal.app</SelectItem>
               <SelectItem value="iTerm2">iTerm2</SelectItem>
@@ -438,17 +394,23 @@ export function SettingsPage() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Variable className="size-5" />
-            <CardTitle>Claude Environment</CardTitle>
+            <CardTitle>{t('settings.environment')}</CardTitle>
           </div>
-          <CardDescription>
-            Environment variables passed to Claude CLI on launch (global)
-          </CardDescription>
+          <CardDescription>{t('settings.environmentDescription')}</CardDescription>
         </CardHeader>
         <CardContent>
           <EnvVarTable
             vars={envVars}
-            onAdd={handleAddEnvVar}
-            onDelete={handleDeleteEnvVar}
+            onAdd={async (key, value) => {
+              await invoke('set_env_var', { projectId: null, key, value });
+              const vars = await invoke<any[]>('list_env_vars', { projectId: null });
+              setEnvVars(vars.map((item) => ({ ...item, scope: 'global' as const })));
+            }}
+            onDelete={async (id) => {
+              await invoke('delete_env_var', { id });
+              const vars = await invoke<any[]>('list_env_vars', { projectId: null });
+              setEnvVars(vars.map((item) => ({ ...item, scope: 'global' as const })));
+            }}
           />
         </CardContent>
       </Card>
@@ -457,16 +419,14 @@ export function SettingsPage() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Database className="size-5" />
-            <CardTitle>Database</CardTitle>
+            <CardTitle>{t('settings.database')}</CardTitle>
           </div>
-          <CardDescription>Data storage information</CardDescription>
+          <CardDescription>{t('settings.databaseDescription')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2">
             <FolderOpen className="size-4 text-muted-foreground" />
-            <span className="text-sm font-mono text-muted-foreground">
-              ~/.claude-manager/ccm.db
-            </span>
+            <span className="text-sm font-mono text-muted-foreground">~/.claude-manager/ccm.db</span>
           </div>
         </CardContent>
       </Card>
@@ -475,30 +435,26 @@ export function SettingsPage() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Info className="size-5" />
-            <CardTitle>About</CardTitle>
+            <CardTitle>{t('settings.about')}</CardTitle>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <div className="text-sm font-medium">Application</div>
-            <div className="text-sm text-muted-foreground">
-              Claude Config Manager (CCM)
-            </div>
+            <div className="text-sm font-medium">{t('settings.application')}</div>
+            <div className="text-sm text-muted-foreground">{t('common.appSubtitle')}</div>
           </div>
           <Separator />
           <div>
-            <div className="text-sm font-medium">Version</div>
+            <div className="text-sm font-medium">{t('settings.version')}</div>
             <Badge variant="secondary">2.0.0</Badge>
           </div>
           <Separator />
           <div>
-            <div className="text-sm font-medium">Description</div>
-            <div className="text-sm text-muted-foreground">
-              Manage Claude Code resources across projects
-            </div>
+            <div className="text-sm font-medium">{t('settings.description')}</div>
+            <div className="text-sm text-muted-foreground">{t('settings.appDescription')}</div>
           </div>
         </CardContent>
       </Card>
-    </div>
+    </PageShell>
   );
 }

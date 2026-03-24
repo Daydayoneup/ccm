@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Search } from 'lucide-react';
 import { ScopeBadge } from '@/lib/scope-utils';
 import type { Resource } from '@/types/v2';
-import { useNavigate } from 'react-router-dom';
+import { useI18n } from '@/i18n/provider';
 
 interface GlobalSearchProps {
   onSearch: (query: string) => void;
@@ -13,6 +14,7 @@ interface GlobalSearchProps {
 }
 
 export function GlobalSearch({ onSearch, results, query }: GlobalSearchProps) {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -42,12 +44,12 @@ export function GlobalSearch({ onSearch, results, query }: GlobalSearchProps) {
   }, []);
 
   return (
-    <div ref={containerRef} className="relative w-72">
+    <div ref={containerRef} className="relative w-full max-w-md">
       <div className="relative">
-        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Search className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search resources..."
-          className="pl-9"
+          placeholder={t('dashboard.searchPlaceholder')}
+          className="h-11 rounded-md border-border/70 bg-panel pl-10 shadow-sm"
           defaultValue={query}
           onChange={(e) => handleChange(e.target.value)}
           onFocus={() => {
@@ -56,26 +58,24 @@ export function GlobalSearch({ onSearch, results, query }: GlobalSearchProps) {
         />
       </div>
       {open && (
-        <div className="absolute top-full mt-1 w-full rounded-md border bg-popover shadow-lg z-50 max-h-64 overflow-y-auto">
+        <div className="absolute top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-border/70 bg-popover shadow-2xl">
           {results.map((resource) => (
             <div
               key={resource.id}
-              className="flex items-center justify-between px-3 py-2 text-sm cursor-pointer hover:bg-accent"
+              className="flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-accent"
               onClick={() => {
                 setOpen(false);
-                const filePath = resource.resource_type === 'skill'
-                  ? `${resource.source_path}/SKILL.md`
-                  : resource.source_path;
+                const filePath = resource.source_path;
                 const extra = resource.resource_type === 'skill'
-                  ? `&resource_id=${resource.id}&type=skill`
+                  ? `&resource_id=${resource.id}&type=skill&scope=${resource.scope === 'project' ? 'project' : 'library'}`
                   : '';
                 navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
               }}
             >
-              <span className="truncate mr-2">{resource.name}</span>
-              <div className="flex gap-1 shrink-0">
+              <span className="mr-2 truncate">{resource.name}</span>
+              <div className="flex shrink-0 gap-1">
                 <Badge variant="outline" className="text-xs">
-                  {resource.resource_type}
+                  {t(`resourceTypes.${resource.resource_type}`)}
                 </Badge>
                 <ScopeBadge scope={resource.scope} className="text-xs" />
               </div>

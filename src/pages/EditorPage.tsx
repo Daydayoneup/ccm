@@ -17,6 +17,7 @@ export function EditorPage() {
   const filePath = searchParams.get('file');
   const resourceId = searchParams.get('resource_id');
   const type = searchParams.get('type');
+  const scope = searchParams.get('scope');
 
   if (!filePath) {
     return (
@@ -55,7 +56,7 @@ export function EditorPage() {
            the viewport, which would cause blank space at the bottom */}
       <div className="flex min-h-0 h-0 flex-1 flex-col overflow-hidden">
         {type === 'skill' && resourceId
-          ? <SkillEditor filePath={filePath} resourceId={resourceId} />
+          ? <SkillEditor filePath={filePath} resourceId={resourceId} scope={scope ?? undefined} />
           : <MarkdownEditor filePath={filePath} />}
       </div>
     </div>

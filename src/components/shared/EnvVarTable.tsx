@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { Check, Eye, EyeOff, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Plus, Trash2, Check, X, Eye, EyeOff } from 'lucide-react';
 import { ScopeBadge } from '@/lib/scope-utils';
+import { useI18n } from '@/i18n/provider';
 import type { MergedEnvVar } from '@/types/v2';
 
 interface EnvVarTableProps {
@@ -14,6 +15,7 @@ interface EnvVarTableProps {
 }
 
 export function EnvVarTable({ vars, onAdd, onDelete, readonlyScope, onReadonlyClick }: EnvVarTableProps) {
+  const { t } = useI18n();
   const [adding, setAdding] = useState(false);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
@@ -22,11 +24,8 @@ export function EnvVarTable({ vars, onAdd, onDelete, readonlyScope, onReadonlyCl
   const toggleVisibility = (id: string) => {
     setVisibleIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -49,58 +48,56 @@ export function EnvVarTable({ vars, onAdd, onDelete, readonlyScope, onReadonlyCl
 
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border">
+      <div className="rounded-[20px] border">
         {vars.length === 0 && !adding ? (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No environment variables configured.
+            {t('env.empty')}
           </div>
         ) : (
           <div className="divide-y">
-            {vars.map((v) => {
-              const isReadonly = readonlyScope && v.scope === readonlyScope;
+            {vars.map((variable) => {
+              const isReadonly = readonlyScope && variable.scope === readonlyScope;
               return (
                 <div
-                  key={v.id}
+                  key={variable.id}
                   className={`flex items-center gap-3 px-4 py-2.5${isReadonly ? ' cursor-pointer opacity-70 hover:opacity-100' : ''}`}
                   onClick={isReadonly ? onReadonlyClick : undefined}
                 >
-                  <code className="min-w-[140px] text-sm font-semibold">{v.key}</code>
+                  <code className="min-w-[140px] text-sm font-semibold">{variable.key}</code>
                   <div className="flex flex-1 items-center gap-2">
                     <code className="text-sm text-muted-foreground">
-                      {visibleIds.has(v.id) ? v.value : '••••••••'}
+                      {visibleIds.has(variable.id) ? variable.value : '••••••••'}
                     </code>
                   </div>
-                  {readonlyScope && (
-                    <ScopeBadge scope={v.scope as 'global' | 'project'} className="shrink-0" />
-                  )}
+                  {readonlyScope ? <ScopeBadge scope={variable.scope as 'global' | 'project'} className="shrink-0" /> : null}
                   <div className="flex items-center gap-0.5">
                     <Button
                       variant="ghost"
                       size="icon"
                       className="size-7"
-                      onClick={(e) => { e.stopPropagation(); toggleVisibility(v.id); }}
-                      title={visibleIds.has(v.id) ? 'Hide value' : 'Show value'}
+                      onClick={(e) => { e.stopPropagation(); toggleVisibility(variable.id); }}
+                      title={visibleIds.has(variable.id) ? t('env.hideValue') : t('env.showValue')}
                     >
-                      {visibleIds.has(v.id) ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                      {visibleIds.has(variable.id) ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                     </Button>
-                    {!isReadonly && (
+                    {!isReadonly ? (
                       <Button
                         variant="ghost"
                         size="icon"
                         className="size-7"
-                        onClick={() => onDelete(v.id)}
-                        title="Delete"
+                        onClick={() => onDelete(variable.id)}
+                        title={t('common.delete')}
                       >
                         <Trash2 className="size-3.5" />
                       </Button>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               );
             })}
           </div>
         )}
-        {adding && (
+        {adding ? (
           <div className="flex items-center gap-2 border-t px-3 py-2">
             <Input
               value={newKey}
@@ -125,21 +122,21 @@ export function EnvVarTable({ vars, onAdd, onDelete, readonlyScope, onReadonlyCl
             />
             <Button size="sm" onClick={handleAdd} disabled={!newKey.trim() || !newValue.trim()}>
               <Check className="mr-1 size-3" />
-              Save
+              {t('common.save')}
             </Button>
             <Button size="sm" variant="ghost" onClick={handleCancel}>
               <X className="mr-1 size-3" />
-              Cancel
+              {t('common.cancel')}
             </Button>
           </div>
-        )}
+        ) : null}
       </div>
-      {!adding && (
+      {!adding ? (
         <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
           <Plus className="mr-1 size-4" />
-          Add Variable
+          {t('env.addVariable')}
         </Button>
-      )}
+      ) : null}
     </div>
   );
 }

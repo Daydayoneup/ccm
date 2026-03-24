@@ -1,10 +1,21 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Sidebar } from '../Sidebar';
+
+vi.mock('@/stores/project-store-v2', () => ({
+  useProjectStoreV2: () => ({
+    projects: [],
+    loadProjects: vi.fn(),
+  }),
+}));
 
 describe('Sidebar', () => {
   function renderSidebar(initialRoute = '/') {
+    Object.defineProperty(window.navigator, 'language', {
+      configurable: true,
+      value: 'zh-CN',
+    });
     return render(
       <MemoryRouter initialEntries={[initialRoute]}>
         <Sidebar paletteEnabled={false} onOpenPalette={() => {}} />
@@ -17,7 +28,7 @@ describe('Sidebar', () => {
 
     expect(screen.getByText('仪表盘')).toBeInTheDocument();
     expect(screen.getByText('全局资源')).toBeInTheDocument();
-    expect(screen.getByText('项目列表')).toBeInTheDocument();
+    expect(screen.getByText('项目')).toBeInTheDocument();
     expect(screen.getByText('资源库')).toBeInTheDocument();
     expect(screen.getByText('设置')).toBeInTheDocument();
   });
@@ -33,7 +44,7 @@ describe('Sidebar', () => {
 
     const dashboardLink = screen.getByText('仪表盘').closest('a');
     const globalLink = screen.getByText('全局资源').closest('a');
-    const projectsLink = screen.getByText('项目列表').closest('a');
+    const projectsLink = screen.getByText('项目').closest('a');
     const libraryLink = screen.getByText('资源库').closest('a');
     const settingsLink = screen.getByText('设置').closest('a');
 

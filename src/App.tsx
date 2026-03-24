@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { I18nProvider } from '@/i18n/provider';
 import { DashboardPageV2 } from '@/pages/DashboardPage_v2';
 import { GlobalPage } from '@/pages/GlobalPage';
 import { ProjectListPage } from '@/pages/ProjectListPage';
@@ -46,9 +47,11 @@ function AppContent() {
 
 function App() {
   return (
-    <BrowserRouter>
-      <AppContent />
-    </BrowserRouter>
+    <I18nProvider>
+      <BrowserRouter>
+        <AppContent />
+      </BrowserRouter>
+    </I18nProvider>
   );
 }
 

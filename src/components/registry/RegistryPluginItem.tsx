@@ -33,34 +33,41 @@ export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal }: Reg
   }, [isExpanded, plugin.id, pluginResources, loadPluginResources, pluginMcpServers, loadPluginMcpServers]);
 
   return (
-    <div className="border rounded-lg">
+    <div className="rounded-md border">
       <div
-        className="flex items-center justify-between p-3 cursor-pointer hover:bg-muted/50"
+        className="flex cursor-pointer flex-col gap-3 p-3 hover:bg-muted/50 lg:flex-row lg:items-center lg:justify-between"
         onClick={() => togglePluginExpanded(plugin.id)}
       >
-        <div className="flex items-center gap-2">
-          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          <span
-            className="font-medium hover:underline"
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate(`/registry-plugins/${plugin.id}`);
-            }}
-          >
-            {plugin.name}
-          </span>
-          {plugin.category && (
-            <Badge variant="secondary">{plugin.category}</Badge>
-          )}
-          {plugin.source_type === 'external' && (
-            <Badge variant="outline">external</Badge>
-          )}
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <div className="pt-1">
+            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-start gap-2">
+              <span
+                className="min-w-0 break-words font-medium hover:underline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/registry-plugins/${plugin.id}`);
+                }}
+              >
+                {plugin.name}
+              </span>
+              {plugin.category && (
+                <Badge variant="secondary">{plugin.category}</Badge>
+              )}
+              {plugin.source_type === 'external' && (
+                <Badge variant="outline">external</Badge>
+              )}
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 lg:ml-4 lg:flex-nowrap">
           {plugin.homepage && (
             <Button
               variant="ghost"
               size="icon"
+              className="shrink-0"
               onClick={(e) => {
                 e.stopPropagation();
                 window.open(plugin.homepage!, '_blank');
@@ -72,6 +79,7 @@ export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal }: Reg
           <Button
             variant="outline"
             size="sm"
+            className="min-w-0 shrink-0"
             onClick={(e) => {
               e.stopPropagation();
               onInstall(plugin.id, plugin.name);
@@ -83,6 +91,7 @@ export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal }: Reg
           <Button
             variant="outline"
             size="sm"
+            className="min-w-0 shrink-0"
             onClick={(e) => {
               e.stopPropagation();
               onInstallToGlobal(plugin.id, plugin.name);
@@ -94,7 +103,7 @@ export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal }: Reg
         </div>
       </div>
       {isExpanded && (
-        <div className="border-t px-4 py-3 space-y-2">
+        <div className="space-y-2 border-t px-4 py-3">
           {plugin.description && (
             <p className="text-sm text-muted-foreground">{plugin.description}</p>
           )}

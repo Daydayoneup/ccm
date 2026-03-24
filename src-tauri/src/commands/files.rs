@@ -128,6 +128,26 @@ pub fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
     Ok(result)
 }
 
+/// Tauri command: Rename/move a file or directory.
+#[tauri::command]
+pub fn rename_path(old_path: String, new_path: String) -> Result<(), String> {
+    let old = Path::new(&old_path);
+    let new = Path::new(&new_path);
+
+    if !old.exists() {
+        return Err(format!("Source path does not exist: {}", old_path));
+    }
+    if new.exists() {
+        return Err(format!("Target path already exists: {}", new_path));
+    }
+    if let Some(parent) = new.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create parent dirs: {}", e))?;
+    }
+    fs::rename(old, new)
+        .map_err(|e| format!("Failed to rename {} to {}: {}", old_path, new_path, e))
+}
+
 /// Tauri command: Compute SHA256 hash of a file.
 #[tauri::command]
 pub fn file_content_hash(path: String) -> Result<String, String> {
@@ -245,5 +265,43 @@ mod tests {
         let hash1 = file_content_hash(file1.to_string_lossy().to_string()).unwrap();
         let hash2 = file_content_hash(file2.to_string_lossy().to_string()).unwrap();
         assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_rename_path_file() {
+        let tmp = TempDir::new().unwrap();
+        let old = tmp.path().join("old.txt");
+        let new_path = tmp.path().join("new.txt");
+        fs::write(&old, "content").unwrap();
+
+        rename_path(old.to_string_lossy().to_string(), new_path.to_string_lossy().to_string()).unwrap();
+        assert!(!old.exists());
+        assert!(new_path.exists());
+        assert_eq!(fs::read_to_string(&new_path).unwrap(), "content");
+    }
+
+    #[test]
+    fn test_rename_path_directory() {
+        let tmp = TempDir::new().unwrap();
+        let old_dir = tmp.path().join("old_dir");
+        fs::create_dir(&old_dir).unwrap();
+        fs::write(old_dir.join("file.txt"), "inside").unwrap();
+        let new_dir = tmp.path().join("new_dir");
+
+        rename_path(old_dir.to_string_lossy().to_string(), new_dir.to_string_lossy().to_string()).unwrap();
+        assert!(!old_dir.exists());
+        assert!(new_dir.join("file.txt").exists());
+    }
+
+    #[test]
+    fn test_rename_path_target_exists() {
+        let tmp = TempDir::new().unwrap();
+        let old = tmp.path().join("old.txt");
+        let existing = tmp.path().join("existing.txt");
+        fs::write(&old, "a").unwrap();
+        fs::write(&existing, "b").unwrap();
+
+        let result = rename_path(old.to_string_lossy().to_string(), existing.to_string_lossy().to_string());
+        assert!(result.is_err());
     }
 }

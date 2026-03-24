@@ -1,15 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { Copy, RefreshCw, Wifi } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Card, CardHeader, CardTitle, CardDescription, CardContent,
-} from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Copy, RefreshCw, Wifi } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { useI18n } from '@/i18n/provider';
 
 export function ApiSettingsCard() {
+  const { t } = useI18n();
   const [apiEnabled, setApiEnabled] = useState(false);
   const [apiPort, setApiPort] = useState('23890');
   const [tokenLast4, setTokenLast4] = useState<string | null>(null);
@@ -18,10 +18,10 @@ export function ApiSettingsCard() {
 
   useEffect(() => {
     invoke<string | null>('get_app_setting', { key: 'api_enabled' }).then(
-      (val) => setApiEnabled(val === 'true')
+      (value) => setApiEnabled(value === 'true')
     );
     invoke<string | null>('get_app_setting', { key: 'api_port' }).then(
-      (val) => { if (val) setApiPort(val); }
+      (value) => { if (value) setApiPort(value); }
     );
     invoke<string | null>('get_api_token_status').then(setTokenLast4);
   }, []);
@@ -46,31 +46,21 @@ export function ApiSettingsCard() {
     setCopied(false);
   };
 
-  const handleCopy = () => {
-    if (newToken) {
-      navigator.clipboard.writeText(newToken);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Wifi className="size-5" />
-            <CardTitle>HTTP API</CardTitle>
+            <CardTitle>{t('settings.httpApi')}</CardTitle>
           </div>
           <Switch checked={apiEnabled} onCheckedChange={handleToggle} />
         </div>
-        <CardDescription>
-          Local HTTP API for external tools (Raycast, Alfred, scripts)
-        </CardDescription>
+        <CardDescription>{t('settings.httpApiDescription')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label>Port</Label>
+          <Label>{t('settings.apiPort')}</Label>
           <Input
             className="w-32"
             value={apiPort}
@@ -81,24 +71,30 @@ export function ApiSettingsCard() {
         </div>
 
         <div className="space-y-2">
-          <Label>API Token</Label>
+          <Label>{t('settings.apiToken')}</Label>
           <div className="flex items-center gap-2">
             {newToken ? (
               <>
-                <code className="flex-1 rounded border bg-muted px-3 py-2 text-sm font-mono break-all">
+                <code className="flex-1 break-all rounded border bg-muted px-3 py-2 text-sm font-mono">
                   {newToken}
                 </code>
-                <Button size="sm" variant="outline" onClick={handleCopy}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard.writeText(newToken);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                >
                   <Copy className="mr-1 size-4" />
-                  {copied ? 'Copied!' : 'Copy'}
+                  {copied ? t('settings.copied') : t('settings.copy')}
                 </Button>
               </>
             ) : tokenLast4 ? (
-              <span className="text-sm text-muted-foreground font-mono">
-                ****...{tokenLast4}
-              </span>
+              <span className="font-mono text-sm text-muted-foreground">****...{tokenLast4}</span>
             ) : (
-              <span className="text-sm text-muted-foreground">No token generated</span>
+              <span className="text-sm text-muted-foreground">{t('settings.noToken')}</span>
             )}
           </div>
           <Button
@@ -108,13 +104,11 @@ export function ApiSettingsCard() {
             disabled={!apiEnabled}
           >
             <RefreshCw className="mr-1 size-4" />
-            {tokenLast4 ? 'Regenerate Token' : 'Generate Token'}
+            {tokenLast4 ? t('settings.regenerateToken') : t('settings.generateToken')}
           </Button>
-          {newToken && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
-              Copy this token now — it won't be shown again.
-            </p>
-          )}
+          {newToken ? (
+            <p className="text-xs text-amber-600 dark:text-amber-400">{t('settings.tokenHint')}</p>
+          ) : null}
         </div>
       </CardContent>
     </Card>

@@ -1,18 +1,28 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import {
-  LayoutDashboard, Globe, FolderGit2, Library, Settings, Terminal,
+  LayoutDashboard,
+  Globe,
+  FolderGit2,
+  Library,
+  Settings,
+  Terminal,
+  Command,
+  ChevronRight,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProjectStoreV2 } from '@/stores/project-store-v2';
+import { useI18n } from '@/i18n/provider';
 
 const navItems = [
-  { to: '/', label: '仪表盘', icon: LayoutDashboard },
-  { to: '/projects', label: '项目列表', icon: FolderGit2 },
-  { to: '/global', label: '全局资源', icon: Globe },
-  { to: '/library', label: '资源库', icon: Library },
-  { to: '/settings', label: '设置', icon: Settings },
+  { to: '/', key: 'dashboard', icon: LayoutDashboard },
+  { to: '/projects', key: 'projects', icon: FolderGit2 },
+  { to: '/global', key: 'global', icon: Globe },
+  { to: '/library', key: 'library', icon: Library },
+  { to: '/settings', key: 'settings', icon: Settings },
 ];
 
 interface SidebarProps {
@@ -21,8 +31,10 @@ interface SidebarProps {
 }
 
 export function Sidebar({ paletteEnabled }: SidebarProps) {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const { projects, loadProjects } = useProjectStoreV2();
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     loadProjects();
@@ -35,87 +47,135 @@ export function Sidebar({ paletteEnabled }: SidebarProps) {
   const handleLaunch = async (projectId: string, projectPath: string) => {
     try {
       await invoke('launch_claude_in_terminal', { projectPath, projectId });
-    } catch (e) {
-      console.error('Failed to launch shell:', e);
+    } catch (error) {
+      console.error('Failed to launch shell:', error);
     }
   };
 
   return (
-    <aside className="flex h-screen w-56 flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 items-center justify-between border-b border-sidebar-border px-4">
-        <div className="flex items-center gap-2.5">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-primary/20">
+    <aside className={cn(
+      "flex h-screen flex-col border-r border-sidebar-border bg-sidebar/95 py-4 text-sidebar-foreground backdrop-blur transition-[width] duration-200",
+      collapsed ? "w-16 px-2" : "w-[288px] px-4"
+    )}>
+      {/* Header */}
+      {collapsed ? (
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex size-11 items-center justify-center rounded-md bg-primary/18 ring-1 ring-primary/20">
             <img src="/app-icon.png" alt="CCM" className="size-5" />
           </div>
-          <div>
-            <h1 className="text-sm font-semibold tracking-tight text-sidebar-accent-foreground">CCM</h1>
-            <p className="text-[10px] leading-none text-sidebar-foreground/50">Config Manager</p>
+          <button
+            onClick={() => setCollapsed(false)}
+            className="rounded-md p-1.5 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            title="展开侧边栏"
+          >
+            <PanelLeftOpen className="size-4" />
+          </button>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-sidebar-border/80 bg-sidebar-accent/60 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex size-11 items-center justify-center rounded-md bg-primary/18 ring-1 ring-primary/20">
+              <img src="/app-icon.png" alt="CCM" className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-sm font-semibold tracking-tight text-sidebar-accent-foreground">{t('common.appName')}</h1>
+              <p className="text-[11px] leading-none text-sidebar-foreground/55">{t('common.appSubtitle')}</p>
+            </div>
+            <button
+              onClick={() => setCollapsed(true)}
+              className="shrink-0 rounded-md p-1.5 text-sidebar-foreground/40 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              title="折叠侧边栏"
+            >
+              <PanelLeftClose className="size-4" />
+            </button>
+          </div>
+          <div className="mt-4 flex items-center gap-2 rounded-md border border-sidebar-border/70 bg-sidebar/60 px-3 py-2 text-xs text-sidebar-foreground/70">
+            <Command className="size-3.5 text-sidebar-primary" />
+            <span>{paletteEnabled ? t('nav.pinHint') : t('nav.noPinnedProjects')}</span>
           </div>
         </div>
-      </div>
+      )}
 
-      <nav className="flex flex-1 flex-col gap-0.5 p-3">
-        <span className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
-          Navigation
-        </span>
+      {/* Navigation */}
+      <nav className={cn("mt-5 flex flex-col gap-1", collapsed && "items-center")}>
+        {!collapsed && (
+          <span className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.22em] text-sidebar-foreground/45">
+            {t('nav.navigation')}
+          </span>
+        )}
         {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.to === '/'}
+            title={collapsed ? t(`nav.${item.key}`) : undefined}
             className={({ isActive }) =>
               cn(
-                'group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
+                'group flex items-center rounded-md text-sm font-medium transition-all duration-200',
+                collapsed ? 'justify-center p-2.5' : 'gap-3 px-3.5 py-3',
                 isActive
-                  ? 'bg-sidebar-primary/15 text-sidebar-primary shadow-[inset_3px_0_0_0] shadow-sidebar-primary'
-                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                  ? 'bg-sidebar-primary/16 text-sidebar-primary shadow-[inset_3px_0_0_0] shadow-sidebar-primary'
+                  : 'text-sidebar-foreground/72 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
               )
             }
           >
             <item.icon className="size-[18px] shrink-0" />
-            {item.label}
+            {!collapsed && <span className="flex-1">{t(`nav.${item.key}`)}</span>}
+            {!collapsed && <ChevronRight className="size-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-50" />}
           </NavLink>
         ))}
       </nav>
 
-      <div className="mx-3 border-t border-sidebar-border pt-3">
-        <span className="mb-2 block px-3 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
-          Pinned Projects
-        </span>
-        <div className="max-h-40 space-y-0.5 overflow-y-auto scrollbar-none">
-          {pinnedProjects.length === 0 ? (
-            <p className="px-3 py-2 text-[11px] text-sidebar-foreground/30">
-              {paletteEnabled ? '⌘K to pin projects' : 'No pinned projects'}
-            </p>
-          ) : (
-            pinnedProjects.map((project) => (
-              <div
-                key={project.id}
-                className="group flex items-center gap-2 rounded-lg px-3 py-1.5 transition-colors hover:bg-sidebar-accent"
-              >
-                <button
-                  onClick={() => navigate(`/projects/${project.id}`)}
-                  className="min-w-0 flex-1 truncate text-left text-[12px] text-sidebar-foreground/70 transition-colors hover:text-sidebar-accent-foreground"
-                  title={project.path}
+      {/* Pinned projects */}
+      {!collapsed ? (
+        <div className="mt-5 min-h-0 flex-1 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 px-3 py-3">
+          <span className="mb-2 block px-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-sidebar-foreground/45">
+            {t('nav.pinnedProjects')}
+          </span>
+          <div className="max-h-full space-y-1 overflow-y-auto scrollbar-none">
+            {pinnedProjects.length === 0 ? (
+              <p className="px-2 py-3 text-[11px] leading-5 text-sidebar-foreground/35">
+                {paletteEnabled ? t('nav.pinHint') : t('nav.noPinnedProjects')}
+              </p>
+            ) : (
+              pinnedProjects.map((project) => (
+                <div
+                  key={project.id}
+                  className="group flex items-center gap-2 rounded-md px-2 py-2 transition-colors hover:bg-sidebar-accent"
                 >
-                  {project.name.length > 12 ? project.name.slice(0, 12) + '…' : project.name}
-                </button>
-                <button
-                  onClick={() => handleLaunch(project.id, project.path)}
-                  className="shrink-0 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-sidebar-border"
-                  title="Launch Shell"
-                >
-                  <Terminal className="size-3.5 text-sidebar-primary" />
-                </button>
-              </div>
-            ))
-          )}
+                  <button
+                    onClick={() => navigate(`/projects/${project.id}`)}
+                    className="min-w-0 flex-1 text-left"
+                    title={project.path}
+                  >
+                    <div className="truncate text-[12px] font-medium text-sidebar-foreground/88">
+                      {project.name}
+                    </div>
+                    <div className="truncate text-[10px] text-sidebar-foreground/45">
+                      {project.path}
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => handleLaunch(project.id, project.path)}
+                    className="shrink-0 rounded-sm p-2 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-sidebar-border"
+                    title={t('common.launchShell')}
+                  >
+                    <Terminal className="size-3.5 text-sidebar-primary" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="mt-5 flex-1" />
+      )}
 
-      <div className="mx-4 mb-4 border-t border-sidebar-border pt-3">
-        <p className="text-center text-[10px] text-sidebar-foreground/30">v2.0</p>
-      </div>
+      {!collapsed && (
+        <div className="mt-4 px-2">
+          <p className="text-center text-[10px] text-sidebar-foreground/32">{t('nav.version', { version: '2.0' })}</p>
+        </div>
+      )}
     </aside>
   );
 }

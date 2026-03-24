@@ -235,9 +235,14 @@ pub fn add_registry(
     }
 
     // Try to read registry metadata for a display name
+    // Priority: registry.json > marketplace.json > user-provided name > repo name
     let display_name = scanner::registry::read_registry_metadata(&local_path_str)
         .map(|(n, _)| n)
-        .unwrap_or(name);
+        .or_else(|| {
+            read_marketplace_json(&local_path_str)
+                .and_then(|mp| mp.name)
+        })
+        .unwrap_or_else(|| if name.is_empty() { repo_name.clone() } else { name });
 
     let now = chrono::Utc::now().to_rfc3339();
     let registry = Registry {

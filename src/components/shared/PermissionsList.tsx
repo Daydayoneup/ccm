@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { Check, Pencil, Plus, Shield, ShieldOff, Trash2, X } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Shield, ShieldOff, Pencil, Check, X } from 'lucide-react';
+import { useI18n } from '@/i18n/provider';
 
 interface Permissions {
   allow: string[];
@@ -18,19 +19,27 @@ function RuleItem({
   rule,
   onEdit,
   onRemove,
+  editTitle,
+  removeTitle,
+  clickToEdit,
+  saveLabel,
+  cancelLabel,
 }: {
   rule: string;
   onEdit: (newValue: string) => void;
   onRemove: () => void;
+  editTitle: string;
+  removeTitle: string;
+  clickToEdit: string;
+  saveLabel: string;
+  cancelLabel: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(rule);
 
   const handleSave = () => {
     const trimmed = editValue.trim();
-    if (trimmed && trimmed !== rule) {
-      onEdit(trimmed);
-    }
+    if (trimmed && trimmed !== rule) onEdit(trimmed);
     setEditing(false);
   };
 
@@ -53,10 +62,10 @@ function RuleItem({
           }}
           onBlur={handleSave}
         />
-        <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={handleSave} title="Save">
+        <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={handleSave} title={saveLabel}>
           <Check className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-7 shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={handleCancel} title="Cancel">
+        <Button variant="ghost" size="icon" className="size-7 shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={handleCancel} title={cancelLabel}>
           <X className="size-3.5" />
         </Button>
       </div>
@@ -65,14 +74,14 @@ function RuleItem({
 
   return (
     <div className="flex items-center justify-between px-4 py-2">
-      <code className="text-sm cursor-pointer hover:text-primary" onClick={() => setEditing(true)} title="Click to edit">
+      <code className="cursor-pointer text-sm hover:text-primary" onClick={() => setEditing(true)} title={clickToEdit}>
         {rule}
       </code>
       <div className="flex items-center gap-0.5">
-        <Button variant="ghost" size="icon" className="size-7" onClick={() => setEditing(true)} title="Edit rule">
+        <Button variant="ghost" size="icon" className="size-7" onClick={() => setEditing(true)} title={editTitle}>
           <Pencil className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onRemove} title="Remove rule">
+        <Button variant="ghost" size="icon" className="size-7" onClick={onRemove} title={removeTitle}>
           <Trash2 className="size-3.5" />
         </Button>
       </div>
@@ -89,6 +98,7 @@ function RuleSection({
   onEdit,
   onRemove,
   placeholder,
+  emptyLabel,
 }: {
   title: string;
   icon: React.ElementType;
@@ -98,7 +108,9 @@ function RuleSection({
   onEdit: (index: number, newValue: string) => void;
   onRemove: (index: number) => void;
   placeholder: string;
+  emptyLabel: string;
 }) {
+  const { t } = useI18n();
   const [newRule, setNewRule] = useState('');
 
   const handleAdd = () => {
@@ -115,19 +127,22 @@ function RuleSection({
         <h3 className="font-medium">{title}</h3>
         <Badge variant="outline" className="text-xs">{rules.length}</Badge>
       </div>
-      <div className="rounded-lg border">
+      <div className="rounded-[20px] border">
         {rules.length === 0 ? (
-          <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-            No {title.toLowerCase()} configured.
-          </div>
+          <div className="px-4 py-6 text-center text-sm text-muted-foreground">{emptyLabel}</div>
         ) : (
           <div className="divide-y">
-            {rules.map((rule, i) => (
+            {rules.map((rule, index) => (
               <RuleItem
-                key={`${rule}-${i}`}
+                key={`${rule}-${index}`}
                 rule={rule}
-                onEdit={(newValue) => onEdit(i, newValue)}
-                onRemove={() => onRemove(i)}
+                onEdit={(newValue) => onEdit(index, newValue)}
+                onRemove={() => onRemove(index)}
+                editTitle={t('permissions.editRule')}
+                removeTitle={t('permissions.removeRule')}
+                clickToEdit={t('permissions.clickToEdit')}
+                saveLabel={t('common.save')}
+                cancelLabel={t('common.cancel')}
               />
             ))}
           </div>
@@ -144,7 +159,7 @@ function RuleSection({
           />
           <Button size="sm" variant={variant} onClick={handleAdd} disabled={!newRule.trim()}>
             <Plus className="mr-1 size-3" />
-            Add
+            {t('permissions.add')}
           </Button>
         </div>
       </div>
@@ -153,6 +168,7 @@ function RuleSection({
 }
 
 export function PermissionsList({ projectId }: PermissionsListProps) {
+  const { t } = useI18n();
   const [permissions, setPermissions] = useState<Permissions>({ allow: [], deny: [] });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -177,58 +193,46 @@ export function PermissionsList({ projectId }: PermissionsListProps) {
         deny: updated.deny,
       });
       setPermissions(updated);
-    } catch (e) {
-      setError(String(e));
+    } catch (error) {
+      setError(String(error));
     } finally {
       setSaving(false);
     }
   };
 
-  const addAllow = (rule: string) => save({ ...permissions, allow: [...permissions.allow, rule] });
-  const editAllow = (index: number, newValue: string) => save({ ...permissions, allow: permissions.allow.map((r, i) => i === index ? newValue : r) });
-  const removeAllow = (index: number) => save({ ...permissions, allow: permissions.allow.filter((_, i) => i !== index) });
-
-  const addDeny = (rule: string) => save({ ...permissions, deny: [...permissions.deny, rule] });
-  const editDeny = (index: number, newValue: string) => save({ ...permissions, deny: permissions.deny.map((r, i) => i === index ? newValue : r) });
-  const removeDeny = (index: number) => save({ ...permissions, deny: permissions.deny.filter((_, i) => i !== index) });
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12 text-muted-foreground">
-        Loading permissions...
+        {t('permissions.loading')}
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {error && (
-        <div className="rounded-lg border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-      {saving && (
-        <div className="text-xs text-muted-foreground">Saving...</div>
-      )}
+      {error ? <div className="rounded-lg border border-destructive bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
+      {saving ? <div className="text-xs text-muted-foreground">{t('permissions.saving')}</div> : null}
       <RuleSection
-        title="Allow Rules"
+        title={t('permissions.allowRules')}
         icon={Shield}
         rules={permissions.allow}
         variant="default"
-        onAdd={addAllow}
-        onEdit={editAllow}
-        onRemove={removeAllow}
-        placeholder='e.g. Bash(npm run:*)'
+        onAdd={(rule) => save({ ...permissions, allow: [...permissions.allow, rule] })}
+        onEdit={(index, newValue) => save({ ...permissions, allow: permissions.allow.map((rule, i) => i === index ? newValue : rule) })}
+        onRemove={(index) => save({ ...permissions, allow: permissions.allow.filter((_, i) => i !== index) })}
+        placeholder="e.g. Bash(npm run:*)"
+        emptyLabel={t('permissions.noRules', { title: t('permissions.allowRules') })}
       />
       <RuleSection
-        title="Deny Rules"
+        title={t('permissions.denyRules')}
         icon={ShieldOff}
         rules={permissions.deny}
         variant="destructive"
-        onAdd={addDeny}
-        onEdit={editDeny}
-        onRemove={removeDeny}
-        placeholder='e.g. Bash(rm -rf:*)'
+        onAdd={(rule) => save({ ...permissions, deny: [...permissions.deny, rule] })}
+        onEdit={(index, newValue) => save({ ...permissions, deny: permissions.deny.map((rule, i) => i === index ? newValue : rule) })}
+        onRemove={(index) => save({ ...permissions, deny: permissions.deny.filter((_, i) => i !== index) })}
+        placeholder="e.g. Bash(rm -rf:*)"
+        emptyLabel={t('permissions.noRules', { title: t('permissions.denyRules') })}
       />
     </div>
   );

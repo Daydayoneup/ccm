@@ -1,10 +1,13 @@
 import { useEffect } from 'react';
-import { useDashboardStore } from '@/stores/dashboard-store';
-import { StatsCards } from '@/components/dashboard/StatsCards';
-import { RecentChanges } from '@/components/dashboard/RecentChanges';
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
+import { RecentChanges } from '@/components/dashboard/RecentChanges';
+import { StatsCards } from '@/components/dashboard/StatsCards';
+import { PageHeader, PageShell, PanelSection } from '@/components/layout/PageShell';
+import { useDashboardStore } from '@/stores/dashboard-store';
+import { useI18n } from '@/i18n/provider';
 
 export function DashboardPageV2() {
+  const { t } = useI18n();
   const {
     stats,
     recentResources,
@@ -21,23 +24,17 @@ export function DashboardPageV2() {
   }, [loadStats, loadRecent]);
 
   return (
-    <div className="space-y-8 p-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Overview of your Claude Code resources
-          </p>
-        </div>
-        <GlobalSearch onSearch={search} results={searchResults} query={searchQuery} />
-      </div>
+    <PageShell className="gap-5">
+      <PageHeader
+        eyebrow={t('nav.dashboard')}
+        title={t('dashboard.title')}
+        description={t('dashboard.subtitle')}
+        actions={<GlobalSearch onSearch={search} results={searchResults} query={searchQuery} />}
+      />
       <StatsCards stats={stats} />
-      <div>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Recent Changes
-        </h2>
+      <PanelSection title={t('dashboard.recentChanges')}>
         <RecentChanges resources={recentResources} />
-      </div>
-    </div>
+      </PanelSection>
+    </PageShell>
   );
 }

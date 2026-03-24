@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScopeBadge } from '@/lib/scope-utils';
 import { useNavigate } from 'react-router-dom';
 import type { Resource } from '@/types/v2';
+import { useI18n } from '@/i18n/provider';
 
 interface RecentChangesProps {
   resources: Resource[];
@@ -16,62 +17,45 @@ const typeColors: Record<string, string> = {
   command: 'bg-res-command/10 text-res-command border-res-command/30',
 };
 
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMinutes < 1) return 'just now';
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
-}
-
-
 export function RecentChanges({ resources }: RecentChangesProps) {
+  const { t, formatRelativeTime } = useI18n();
   const navigate = useNavigate();
 
   if (resources.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-        No resources found. Run a sync to discover resources.
+      <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+        {t('dashboard.noRecent')}
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="rounded-md border border-border/60 bg-card/90">
       <div className="divide-y divide-border">
         {resources.map((resource) => (
           <div
             key={resource.id}
-            className="group flex items-center justify-between px-4 py-3 transition-colors hover:bg-accent/30 cursor-pointer"
+            className="group flex cursor-pointer items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-accent/30"
             onClick={() => {
-              const filePath = resource.resource_type === 'skill'
-                ? `${resource.source_path}/SKILL.md`
-                : resource.source_path;
+              const filePath = resource.source_path;
               const extra = resource.resource_type === 'skill'
-                ? `&resource_id=${resource.id}&type=skill`
+                ? `&resource_id=${resource.id}&type=skill&scope=${resource.scope === 'project' ? 'project' : 'library'}`
                 : '';
               navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
             }}
           >
-            <div className="flex items-center gap-3 min-w-0">
+            <div className="flex min-w-0 items-center gap-3">
               <div className={`size-2 rounded-full ${typeColors[resource.resource_type]?.split(' ')[0] || 'bg-muted'}`} />
-              <span className="truncate font-medium text-sm">{resource.name}</span>
+              <span className="truncate text-sm font-medium">{resource.name}</span>
               <Badge
                 variant="outline"
                 className={`shrink-0 text-[10px] font-medium ${typeColors[resource.resource_type] || ''}`}
               >
-                {resource.resource_type}
+                {t(`resourceTypes.${resource.resource_type}`)}
               </Badge>
               <ScopeBadge scope={resource.scope} className="shrink-0" />
             </div>
-            <span className="text-[11px] font-mono text-muted-foreground whitespace-nowrap ml-4 tabular-nums">
+            <span className="ml-4 whitespace-nowrap text-[11px] font-mono tabular-nums text-muted-foreground">
               {formatRelativeTime(resource.updated_at)}
             </span>
           </div>

@@ -118,11 +118,9 @@ export function PluginDetailPage() {
                   variant="ghost"
                   size="icon"
                   onClick={() => {
-                    const filePath = resource.resource_type === 'skill'
-                      ? `${resource.source_path}/SKILL.md`
-                      : resource.source_path;
+                    const filePath = resource.source_path;
                     const extra = resource.resource_type === 'skill'
-                      ? `&resource_id=${resource.id}&type=skill`
+                      ? `&resource_id=${resource.id}&type=skill&scope=library`
                       : '';
                     navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
                   }}
