@@ -279,6 +279,35 @@ pub fn run() {
             commands::frontmatter_cmd::save_skill_raw_content,
             commands::frontmatter_cmd::get_resource,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            match &event {
+                tauri::RunEvent::ExitRequested { code, api, .. } => {
+                    // Prevent auto-exit when all windows are hidden (tray mode)
+                    if code.is_none() {
+                        api.prevent_exit();
+                    }
+                }
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+                    if !has_visible_windows {
+                        // Restore dock icon
+                        use objc2::MainThreadMarker;
+                        use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+                        if let Some(mtm) = MainThreadMarker::new() {
+                            let ns_app = NSApplication::sharedApplication(mtm);
+                            ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+                        }
+                        // Show and focus the main window
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                }
+                _ => {}
+            }
+            let _ = app;
+        });
 }

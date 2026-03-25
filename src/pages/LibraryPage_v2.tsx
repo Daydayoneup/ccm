@@ -90,7 +90,17 @@ export function LibraryPage_v2() {
             <>
               <LinkHealthBadge linkHealth={linkHealth} onCheck={checkLinkHealth} loading={loading} />
               {pageTab === 'resources' ? (
-                <CreateLibraryResourceDialog onSubmit={createResource} defaultType={activeTab} />
+                <CreateLibraryResourceDialog
+                onSubmit={createResource}
+                defaultType={activeTab}
+                onCreated={(resource) => {
+                  const filePath = resource.source_path;
+                  const extra = resource.resource_type === 'skill'
+                    ? `&resource_id=${resource.id}&type=skill&scope=library`
+                    : '';
+                  navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
+                }}
+              />
               ) : null}
             </>
           ) : null

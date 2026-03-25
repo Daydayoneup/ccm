@@ -40,7 +40,6 @@ export function ResourceTable({ resources, onDelete, onBackup, showScope }: Reso
     <>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {resources.map((resource) => {
-          const isGlobal = resource.scope === 'global';
           return (
             <div
               key={resource.id}
@@ -70,7 +69,7 @@ export function ResourceTable({ resources, onDelete, onBackup, showScope }: Reso
                 </div>
               </div>
               <div className="mt-4 flex items-center justify-end gap-1 border-t border-border/50 pt-3">
-                {!isGlobal && onBackup && (
+                {resource.scope !== 'library' && onBackup && (
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -81,7 +80,7 @@ export function ResourceTable({ resources, onDelete, onBackup, showScope }: Reso
                     <Archive className="size-3.5" />
                   </Button>
                 )}
-                {!isGlobal && onDelete && (
+                {onDelete && (
                   <Button
                     variant="ghost"
                     size="icon-sm"

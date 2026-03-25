@@ -136,12 +136,44 @@ pub fn create_global_resource(
     Ok(resource)
 }
 
-/// Delete a global resource — optionally removes file from filesystem, always removes DB record
+/// Delete a global resource — optionally removes file from filesystem, always removes DB record.
+/// For library resources deployed to global via links, removes the global links (symlinks/copies)
+/// without deleting the library source.
 #[tauri::command]
 pub fn delete_global_resource(db: State<Database>, id: String, delete_from_disk: Option<bool>) -> Result<(), String> {
     let resource = db.get_resource(&id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Resource not found: {}", id))?;
+
+    // Library resource deployed to global: unlink instead of delete
+    if resource.scope == ResourceScope::Library {
+        let links = db.list_links_by_resource(&id).map_err(|e| e.to_string())?;
+        let global_links: Vec<_> = links.into_iter()
+            .filter(|l| l.target_scope == "global")
+            .collect();
+
+        if global_links.is_empty() {
+            return Err("Resource has no global deployment to remove".to_string());
+        }
+
+        for link in &global_links {
+            // Remove the target (symlink, copy, or config entry)
+            let target = Path::new(&link.target_path);
+            if target.exists() || target.symlink_metadata().is_ok() {
+                if target.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+                    fs::remove_file(target).map_err(|e| e.to_string())?;
+                } else if target.is_dir() {
+                    fs::remove_dir_all(target).map_err(|e| e.to_string())?;
+                } else {
+                    fs::remove_file(target).map_err(|e| e.to_string())?;
+                }
+            }
+            // Remove link record from DB
+            db.delete_link(&link.id).map_err(|e| e.to_string())?;
+        }
+
+        return Ok(());
+    }
 
     if resource.scope != ResourceScope::Global {
         return Err("Resource is not a global resource".to_string());

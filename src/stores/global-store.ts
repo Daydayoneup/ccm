@@ -59,8 +59,13 @@ export const useGlobalStore = create<GlobalStore>((set, get) => ({
   },
 
   deleteResource: async (id: string, deleteFromDisk = false) => {
-    await invoke<void>('delete_global_resource', { id, deleteFromDisk });
-    await get().loadResources();
+    set({ error: null });
+    try {
+      await invoke<void>('delete_global_resource', { id, deleteFromDisk });
+      await get().loadResources();
+    } catch (e) {
+      set({ error: String(e) });
+    }
   },
 
   backupToLibrary: async (resourceId: string) => {
