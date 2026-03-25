@@ -8,9 +8,13 @@ interface RegistryPluginListProps {
   registryId: string;
   onInstallPlugin?: (pluginId: string, pluginName: string) => void;
   onInstallPluginToGlobal?: (pluginId: string, pluginName: string) => void;
+  onInstallResource?: (resourceId: string, resourceName: string, pluginId: string) => void;
+  onInstallResourceToGlobal?: (resourceId: string, resourceName: string, pluginId: string) => void;
+  onUninstallResource?: (linkIds: string[], pluginId: string) => void;
+  projectNames?: Record<string, string>;
 }
 
-export function RegistryPluginList({ registryId, onInstallPlugin, onInstallPluginToGlobal }: RegistryPluginListProps) {
+export function RegistryPluginList({ registryId, onInstallPlugin, onInstallPluginToGlobal, onInstallResource, onInstallResourceToGlobal, onUninstallResource, projectNames }: RegistryPluginListProps) {
   const { registryPlugins, loadRegistryPlugins } = useRegistryStore();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -60,6 +64,10 @@ export function RegistryPluginList({ registryId, onInstallPlugin, onInstallPlugi
             plugin={plugin}
             onInstall={(id, name) => onInstallPlugin?.(id, name)}
             onInstallToGlobal={(id, name) => onInstallPluginToGlobal?.(id, name)}
+            onInstallResource={onInstallResource ?? (() => {})}
+            onInstallResourceToGlobal={onInstallResourceToGlobal ?? (() => {})}
+            onUninstallResource={onUninstallResource ?? (() => {})}
+            projectNames={projectNames ?? {}}
           />
         ))}
         {filteredPlugins.length === 0 && (

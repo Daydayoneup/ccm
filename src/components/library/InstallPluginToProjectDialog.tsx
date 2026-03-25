@@ -21,6 +21,7 @@ interface InstallPluginToProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pluginName: string;
+  resourceName?: string;
   onConfirm: (projectId: string) => Promise<void>;
 }
 
@@ -28,6 +29,7 @@ export function InstallPluginToProjectDialog({
   open,
   onOpenChange,
   pluginName,
+  resourceName,
   onConfirm,
 }: InstallPluginToProjectDialogProps) {
   const { projects, loadProjects } = useProjectStoreV2();
@@ -62,7 +64,11 @@ export function InstallPluginToProjectDialog({
         </DialogHeader>
         <div className="space-y-4 py-4">
           <p className="text-sm text-muted-foreground">
-            将插件 <span className="font-medium text-foreground">{pluginName}</span> 的所有资源安装到项目中。
+            {resourceName ? (
+              <>将资源 <span className="font-medium text-foreground">{resourceName}</span> 安装到项目中。</>
+            ) : (
+              <>将插件 <span className="font-medium text-foreground">{pluginName}</span> 的所有资源安装到项目中。</>
+            )}
           </p>
           <div className="space-y-2">
             <Label>选择项目</Label>

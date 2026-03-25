@@ -7,3 +7,4 @@ src-tauri/gen/schemas/
 *.swp
 app-icon.png
 .worktrees/
+gitpush.sh

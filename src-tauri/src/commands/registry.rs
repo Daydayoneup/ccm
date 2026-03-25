@@ -966,6 +966,116 @@ pub fn uninstall_plugin_from_project(
     Ok(())
 }
 
+/// Shared helper: resolve resource type to directory name, reject McpServer.
+fn resource_type_dir(rt: &ResourceType) -> Result<&'static str, String> {
+    match rt {
+        ResourceType::Skill => Ok("skills"),
+        ResourceType::Agent => Ok("agents"),
+        ResourceType::Rule => Ok("rules"),
+        ResourceType::Hook => Ok("hooks"),
+        ResourceType::Command => Ok("commands"),
+        ResourceType::McpServer => Err("MCP server resources cannot be installed individually; use plugin-level install instead".to_string()),
+    }
+}
+
+/// Shared helper: create symlink and ResourceLink record for a single resource.
+fn install_single_resource_symlink(
+    db: &Database,
+    resource: &crate::models::v2::Resource,
+    target_base: &Path,
+    target_scope: &str,
+    project_id: Option<String>,
+) -> Result<crate::models::v2::ResourceLink, String> {
+    let type_dir = resource_type_dir(&resource.resource_type)?;
+    let target_dir = target_base.join(type_dir);
+    fs::create_dir_all(&target_dir)
+        .map_err(|e| format!("Failed to create dir: {}", e))?;
+
+    let source = std::path::Path::new(&resource.source_path);
+    let file_name = source.file_name().ok_or("Invalid source path")?;
+    let target = target_dir.join(file_name);
+
+    if target.exists() {
+        return Err(format!("Target already exists: {}", target.display()));
+    }
+
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(source, &target)
+        .map_err(|e| format!("Failed to create symlink: {}", e))?;
+    #[cfg(not(unix))]
+    return Err("Symlinks not supported on this platform".to_string());
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let link = crate::models::v2::ResourceLink {
+        id: uuid::Uuid::new_v4().to_string(),
+        resource_id: resource.id.clone(),
+        target_scope: target_scope.to_string(),
+        target_path: target.to_string_lossy().to_string(),
+        config_key: None,
+        project_id,
+        link_type: "symlink".to_string(),
+        created_at: now,
+    };
+    db.insert_link(&link)
+        .map_err(|e| format!("Failed to insert link: {}", e))?;
+    Ok(link)
+}
+
+/// Internal implementation for single-resource project install, accepts project_path for testability.
+fn install_resource_to_project_impl(
+    db: &Database,
+    resource_id: &str,
+    project_path: &Path,
+    project_id: Option<String>,
+) -> Result<Vec<crate::models::v2::ResourceLink>, String> {
+    let resource = db
+        .get_resource(resource_id)
+        .map_err(|e| format!("Failed to get resource: {}", e))?
+        .ok_or("Resource not found")?;
+    let target_base = project_path.join(".claude");
+    let link = install_single_resource_symlink(db, &resource, &target_base, "project", project_id)?;
+    Ok(vec![link])
+}
+
+/// Install a single resource to a project via symlink (no CLI plugin mode).
+#[tauri::command]
+pub fn install_resource_to_project(
+    db: State<Database>,
+    resource_id: String,
+    project_id: String,
+) -> Result<Vec<crate::models::v2::ResourceLink>, String> {
+    let project = db
+        .get_project(&project_id)
+        .map_err(|e| format!("Failed to get project: {}", e))?
+        .ok_or("Project not found")?;
+    install_resource_to_project_impl(&db, &resource_id, std::path::Path::new(&project.path), Some(project_id))
+}
+
+fn install_resource_to_global_impl(
+    db: &Database,
+    resource_id: &str,
+    claude_dir: &Path,
+) -> Result<Vec<crate::models::v2::ResourceLink>, String> {
+    let resource = db
+        .get_resource(resource_id)
+        .map_err(|e| format!("Failed to get resource: {}", e))?
+        .ok_or("Resource not found")?;
+    let link = install_single_resource_symlink(db, &resource, claude_dir, "global", None)?;
+    Ok(vec![link])
+}
+
+/// Install a single resource to global ~/.claude/<type>/ via symlink.
+#[tauri::command]
+pub fn install_resource_to_global(
+    db: State<Database>,
+    resource_id: String,
+) -> Result<Vec<crate::models::v2::ResourceLink>, String> {
+    let claude_dir = dirs::home_dir()
+        .ok_or("Cannot determine home directory")?
+        .join(".claude");
+    install_resource_to_global_impl(&db, &resource_id, &claude_dir)
+}
+
 /// Install all resources of a registry plugin to global ~/.claude/<type>/
 #[tauri::command]
 pub fn install_plugin_to_global(
@@ -1020,6 +1130,86 @@ pub fn install_plugin_to_global(
 
     let claude_dir = home.join(".claude");
     install_plugin_to_global_impl(&db, &plugin_id, &claude_dir)
+}
+
+/// Internal implementation for uninstalling resources by link IDs (best-effort).
+fn uninstall_resource_impl(
+    db: &Database,
+    link_ids: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let mut errors = Vec::new();
+    for link_id in &link_ids {
+        let link = match db.get_link(link_id).map_err(|e| e.to_string())? {
+            Some(l) => l,
+            None => {
+                errors.push(format!("Link not found: {}", link_id));
+                continue;
+            }
+        };
+
+        // Remove file/symlink from disk
+        let target = std::path::Path::new(&link.target_path);
+        if target.exists() || target.symlink_metadata().is_ok() {
+            let remove_result = if target.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+                std::fs::remove_file(target)
+            } else if target.is_dir() {
+                std::fs::remove_dir_all(target)
+            } else {
+                std::fs::remove_file(target)
+            };
+            if let Err(e) = remove_result {
+                errors.push(format!("Failed to remove {}: {}", link.target_path, e));
+            }
+        }
+
+        // Remove DB record
+        if let Err(e) = db.delete_link(link_id) {
+            errors.push(format!("Failed to delete link record {}: {}", link_id, e));
+        }
+    }
+    Ok(errors)
+}
+
+/// Uninstall specific resource links by their IDs (best-effort).
+#[tauri::command]
+pub fn uninstall_resource(
+    db: State<Database>,
+    link_ids: Vec<String>,
+) -> Result<Vec<String>, String> {
+    uninstall_resource_impl(&db, link_ids)
+}
+
+fn get_plugin_resources_install_status_impl(
+    db: &Database,
+    plugin_id: &str,
+) -> Result<std::collections::HashMap<String, Vec<crate::models::v2::ResourceLink>>, String> {
+    let resources = db
+        .list_resources_by_scope(&ResourceScope::Registry)
+        .map_err(|e| format!("Failed to list resources: {}", e))?;
+    let plugin_resources: Vec<_> = resources
+        .into_iter()
+        .filter(|r| r.metadata.as_deref() == Some(plugin_id))
+        .collect();
+
+    let mut status_map = std::collections::HashMap::new();
+    for resource in &plugin_resources {
+        let links = db
+            .list_links_by_resource(&resource.id)
+            .map_err(|e| format!("Failed to get links: {}", e))?;
+        if !links.is_empty() {
+            status_map.insert(resource.id.clone(), links);
+        }
+    }
+    Ok(status_map)
+}
+
+/// Get install status for all resources in a plugin.
+#[tauri::command]
+pub fn get_plugin_resources_install_status(
+    db: State<Database>,
+    plugin_id: String,
+) -> Result<std::collections::HashMap<String, Vec<crate::models::v2::ResourceLink>>, String> {
+    get_plugin_resources_install_status_impl(&db, &plugin_id)
 }
 
 #[cfg(test)]
@@ -1452,5 +1642,172 @@ mod tests {
         // Original file should be unchanged
         let content = fs::read_to_string(target_dir.join("existing-skill.md")).unwrap();
         assert_eq!(content, "already here");
+    }
+
+    #[test]
+    fn test_install_single_resource_to_global() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db = Database::new_in_memory().unwrap();
+
+        let registry_id = "reg1";
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO registries (id, name, url, local_path, readonly, created_at) VALUES (?1, 'test-reg', 'https://example.com', ?2, 0, '2026-03-01')",
+                rusqlite::params![registry_id, tmp.path().to_string_lossy().to_string()],
+            ).unwrap();
+        }
+
+        let source_dir = tmp.path().join("skills").join("my-skill");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(source_dir.join("skill.md"), "# test").unwrap();
+        let resource_id = "res-single-1";
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO resources (id, resource_type, name, scope, source_path, metadata, created_at, updated_at) VALUES (?1, 'skill', 'my-skill', 'registry', ?2, ?3, '2026-03-01', '2026-03-01')",
+                rusqlite::params![resource_id, source_dir.to_string_lossy().to_string(), registry_id],
+            ).unwrap();
+        }
+
+        let claude_dir = tmp.path().join("claude-home");
+        fs::create_dir_all(&claude_dir).unwrap();
+
+        let links = install_resource_to_global_impl(&db, resource_id, &claude_dir).unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target_scope, "global");
+        assert_eq!(links[0].link_type, "symlink");
+
+        let target = claude_dir.join("skills").join("my-skill");
+        assert!(target.symlink_metadata().is_ok());
+    }
+
+    #[test]
+    fn test_install_single_resource_to_project() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db = Database::new_in_memory().unwrap();
+
+        let project_dir = tmp.path().join("my-project");
+        fs::create_dir_all(&project_dir).unwrap();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO projects (id, name, path) VALUES ('proj1', 'my-project', ?1)",
+                rusqlite::params![project_dir.to_string_lossy().to_string()],
+            ).unwrap();
+        }
+
+        let source_dir = tmp.path().join("skills").join("my-skill");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(source_dir.join("skill.md"), "# test").unwrap();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO resources (id, resource_type, name, scope, source_path, created_at, updated_at) VALUES ('res1', 'skill', 'my-skill', 'registry', ?1, '2026-03-01', '2026-03-01')",
+                rusqlite::params![source_dir.to_string_lossy().to_string()],
+            ).unwrap();
+        }
+
+        let links = install_resource_to_project_impl(&db, "res1", &project_dir, Some("proj1".to_string())).unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target_scope, "project");
+        assert_eq!(links[0].project_id, Some("proj1".to_string()));
+
+        let target = project_dir.join(".claude").join("skills").join("my-skill");
+        assert!(target.symlink_metadata().is_ok());
+    }
+
+    #[test]
+    fn test_install_mcp_server_resource_rejected() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db = Database::new_in_memory().unwrap();
+
+        let source_dir = tmp.path().join("mcp").join("my-server");
+        fs::create_dir_all(&source_dir).unwrap();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO resources (id, resource_type, name, scope, source_path, created_at, updated_at) VALUES ('res-mcp', 'mcp_server', 'my-server', 'registry', ?1, '2026-03-01', '2026-03-01')",
+                rusqlite::params![source_dir.to_string_lossy().to_string()],
+            ).unwrap();
+        }
+
+        let claude_dir = tmp.path().join("claude-home");
+        let result = install_resource_to_global_impl(&db, "res-mcp", &claude_dir);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("MCP server"));
+    }
+
+    #[test]
+    fn test_uninstall_resource_best_effort() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db = Database::new_in_memory().unwrap();
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO resources (id, resource_type, name, scope, source_path, created_at, updated_at) VALUES ('res1', 'skill', 'test', 'registry', '/tmp/src', '2026-03-01', '2026-03-01')",
+                [],
+            ).unwrap();
+        }
+
+        let target_path = tmp.path().join("skills").join("test-skill");
+        fs::create_dir_all(tmp.path().join("skills")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/tmp/src", &target_path).unwrap();
+
+        let link = crate::models::v2::ResourceLink {
+            id: "link-u1".to_string(),
+            resource_id: "res1".to_string(),
+            target_scope: "global".to_string(),
+            target_path: target_path.to_string_lossy().to_string(),
+            config_key: None,
+            project_id: None,
+            link_type: "symlink".to_string(),
+            created_at: "2026-03-01T00:00:00Z".to_string(),
+        };
+        db.insert_link(&link).unwrap();
+
+        let result = uninstall_resource_impl(&db, vec!["link-u1".to_string()]);
+        assert!(result.is_ok());
+
+        assert!(!target_path.exists());
+        assert!(db.get_link("link-u1").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_get_plugin_resources_install_status() {
+        let db = Database::new_in_memory().unwrap();
+
+        let plugin_id = "plugin1";
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO resources (id, resource_type, name, scope, source_path, metadata, created_at, updated_at) VALUES ('res1', 'skill', 'skill-a', 'registry', '/tmp/a', ?1, '2026-03-01', '2026-03-01')",
+                rusqlite::params![plugin_id],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO resources (id, resource_type, name, scope, source_path, metadata, created_at, updated_at) VALUES ('res2', 'agent', 'agent-b', 'registry', '/tmp/b', ?1, '2026-03-01', '2026-03-01')",
+                rusqlite::params![plugin_id],
+            ).unwrap();
+        }
+
+        let link = crate::models::v2::ResourceLink {
+            id: "link1".to_string(),
+            resource_id: "res1".to_string(),
+            target_scope: "global".to_string(),
+            target_path: "/target/link1".to_string(),
+            config_key: None,
+            project_id: None,
+            link_type: "symlink".to_string(),
+            created_at: "2026-03-01T00:00:00Z".to_string(),
+        };
+        db.insert_link(&link).unwrap();
+
+        let status = get_plugin_resources_install_status_impl(&db, plugin_id).unwrap();
+        assert_eq!(status.len(), 1);
+        assert!(status.contains_key("res1"));
+        assert!(!status.contains_key("res2"));
+        assert_eq!(status["res1"].len(), 1);
     }
 }

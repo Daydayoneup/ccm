@@ -4,19 +4,24 @@ import { ChevronDown, ChevronRight, Download, ExternalLink, Globe, Server } from
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useRegistryStore } from '@/stores/registry-store';
-import { ResourceTable } from '@/components/shared/ResourceTable';
 import { McpServerList } from '@/components/shared/McpServerList';
-import type { RegistryPlugin } from '@/types/v2';
+import { ResourceInstallDropdown } from './ResourceInstallDropdown';
+import { ResourceUninstallPopover } from './ResourceUninstallPopover';
+import type { RegistryPlugin, ResourceLink } from '@/types/v2';
 
 interface RegistryPluginItemProps {
   plugin: RegistryPlugin;
   onInstall: (pluginId: string, pluginName: string) => void;
   onInstallToGlobal: (pluginId: string, pluginName: string) => void;
+  onInstallResource: (resourceId: string, resourceName: string, pluginId: string) => void;
+  onInstallResourceToGlobal: (resourceId: string, resourceName: string, pluginId: string) => void;
+  onUninstallResource: (linkIds: string[], pluginId: string) => void;
+  projectNames: Record<string, string>;
 }
 
-export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal }: RegistryPluginItemProps) {
+export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal, onInstallResource, onInstallResourceToGlobal, onUninstallResource, projectNames }: RegistryPluginItemProps) {
   const navigate = useNavigate();
-  const { expandedPlugins, togglePluginExpanded, pluginResources, loadPluginResources, pluginMcpServers, loadPluginMcpServers } =
+  const { expandedPlugins, togglePluginExpanded, pluginResources, loadPluginResources, pluginMcpServers, loadPluginMcpServers, resourceInstallStatus, loadResourceInstallStatus } =
     useRegistryStore();
 
   const isExpanded = expandedPlugins.has(plugin.id);
@@ -30,7 +35,10 @@ export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal }: Reg
     if (isExpanded && !pluginMcpServers[plugin.id]) {
       loadPluginMcpServers(plugin.id);
     }
-  }, [isExpanded, plugin.id, pluginResources, loadPluginResources, pluginMcpServers, loadPluginMcpServers]);
+    if (isExpanded) {
+      loadResourceInstallStatus(plugin.id);
+    }
+  }, [isExpanded, plugin.id, pluginResources, loadPluginResources, pluginMcpServers, loadPluginMcpServers, loadResourceInstallStatus]);
 
   return (
     <div className="rounded-md border">
@@ -86,7 +94,7 @@ export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal }: Reg
             }}
           >
             <Download className="mr-1 h-4 w-4" />
-            安装到项目
+            全部安装到项目
           </Button>
           <Button
             variant="outline"
@@ -98,7 +106,7 @@ export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal }: Reg
             }}
           >
             <Globe className="mr-1 h-4 w-4" />
-            安装到全局
+            全部安装到全局
           </Button>
         </div>
       </div>
@@ -107,7 +115,50 @@ export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal }: Reg
           {plugin.description && (
             <p className="text-sm text-muted-foreground">{plugin.description}</p>
           )}
-          <ResourceTable resources={resources} />
+          {resources.length > 0 && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {resources.map((resource) => {
+                const installStatus = resourceInstallStatus[plugin.id] || {};
+                const resourceLinks: ResourceLink[] = installStatus[resource.id] || [];
+                const isInstalled = resourceLinks.length > 0;
+
+                return (
+                  <div
+                    key={resource.id}
+                    className="rounded-md border bg-card/90 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium">{resource.name}</span>
+                          {isInstalled && (
+                            <Badge variant="secondary" className="shrink-0 text-xs">已安装</Badge>
+                          )}
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          {resource.description || '暂无描述'}
+                        </p>
+                      </div>
+                      <div className="shrink-0">
+                        {isInstalled ? (
+                          <ResourceUninstallPopover
+                            links={resourceLinks}
+                            projectNames={projectNames}
+                            onUninstall={(linkIds) => onUninstallResource(linkIds, plugin.id)}
+                          />
+                        ) : (
+                          <ResourceInstallDropdown
+                            onInstallToProject={() => onInstallResource(resource.id, resource.name, plugin.id)}
+                            onInstallToGlobal={() => onInstallResourceToGlobal(resource.id, resource.name, plugin.id)}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {mcpServers.length > 0 && (
             <>
               <div className="flex items-center gap-2 pt-2">

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { Registry, Resource, ResourceType, RegistryPlugin, McpServer } from '@/types/v2';
-import { listRegistryPlugins, getRegistryPluginResources, getRegistryPluginMcpServers, installPluginToProject, installPluginToGlobal } from '@/lib/tauri-api';
+import type { Registry, Resource, ResourceType, RegistryPlugin, McpServer, ResourceLink } from '@/types/v2';
+import { listRegistryPlugins, getRegistryPluginResources, getRegistryPluginMcpServers, installPluginToProject, installPluginToGlobal, installResourceToProject as apiInstallResourceToProject, installResourceToGlobal as apiInstallResourceToGlobal, uninstallResource as apiUninstallResource, getPluginResourcesInstallStatus } from '@/lib/tauri-api';
 
 interface RegistryStore {
   registries: Registry[];
@@ -36,6 +36,12 @@ interface RegistryStore {
   loadPluginMcpServers: (pluginId: string) => Promise<void>;
   installPluginToProject: (pluginId: string, projectId: string) => Promise<void>;
   installPluginToGlobal: (pluginId: string) => Promise<void>;
+
+  resourceInstallStatus: Record<string, Record<string, ResourceLink[]>>; // pluginId → { resourceId → links[] }
+  loadResourceInstallStatus: (pluginId: string) => Promise<void>;
+  installResourceToProject: (resourceId: string, projectId: string, pluginId: string) => Promise<void>;
+  installResourceToGlobal: (resourceId: string, pluginId: string) => Promise<void>;
+  uninstallResource: (linkIds: string[], pluginId: string) => Promise<void>;
 }
 
 export const useRegistryStore = create<RegistryStore>((set, get) => ({
@@ -50,6 +56,7 @@ export const useRegistryStore = create<RegistryStore>((set, get) => ({
   pluginResources: {},
   expandedPlugins: new Set(),
   pluginMcpServers: {},
+  resourceInstallStatus: {},
 
   loadRegistries: async () => {
     set({ loading: true, error: null });
@@ -221,6 +228,59 @@ export const useRegistryStore = create<RegistryStore>((set, get) => ({
       set({ error: String(e) });
     } finally {
       set({ syncing: false });
+    }
+  },
+
+  loadResourceInstallStatus: async (pluginId: string) => {
+    try {
+      const status = await getPluginResourcesInstallStatus(pluginId);
+      set((state) => ({
+        resourceInstallStatus: { ...state.resourceInstallStatus, [pluginId]: status },
+      }));
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  installResourceToProject: async (resourceId: string, projectId: string, pluginId: string) => {
+    try {
+      set({ syncing: true });
+      await apiInstallResourceToProject(resourceId, projectId);
+      const status = await getPluginResourcesInstallStatus(pluginId);
+      set((state) => ({
+        resourceInstallStatus: { ...state.resourceInstallStatus, [pluginId]: status },
+        syncing: false,
+      }));
+    } catch (e) {
+      set({ error: String(e), syncing: false });
+    }
+  },
+
+  installResourceToGlobal: async (resourceId: string, pluginId: string) => {
+    try {
+      set({ syncing: true });
+      await apiInstallResourceToGlobal(resourceId);
+      const status = await getPluginResourcesInstallStatus(pluginId);
+      set((state) => ({
+        resourceInstallStatus: { ...state.resourceInstallStatus, [pluginId]: status },
+        syncing: false,
+      }));
+    } catch (e) {
+      set({ error: String(e), syncing: false });
+    }
+  },
+
+  uninstallResource: async (linkIds: string[], pluginId: string) => {
+    try {
+      set({ syncing: true });
+      await apiUninstallResource(linkIds);
+      const status = await getPluginResourcesInstallStatus(pluginId);
+      set((state) => ({
+        resourceInstallStatus: { ...state.resourceInstallStatus, [pluginId]: status },
+        syncing: false,
+      }));
+    } catch (e) {
+      set({ error: String(e), syncing: false });
     }
   },
 }));

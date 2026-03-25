@@ -143,6 +143,22 @@ export async function installPluginToGlobal(pluginId: string): Promise<ResourceL
   return invoke<ResourceLink[]>('install_plugin_to_global', { pluginId });
 }
 
+export async function installResourceToProject(resourceId: string, projectId: string): Promise<ResourceLink[]> {
+  return invoke<ResourceLink[]>('install_resource_to_project', { resourceId, projectId });
+}
+
+export async function installResourceToGlobal(resourceId: string): Promise<ResourceLink[]> {
+  return invoke<ResourceLink[]>('install_resource_to_global', { resourceId });
+}
+
+export async function uninstallResource(linkIds: string[]): Promise<string[]> {
+  return invoke<string[]>('uninstall_resource', { linkIds });
+}
+
+export async function getPluginResourcesInstallStatus(pluginId: string): Promise<Record<string, ResourceLink[]>> {
+  return invoke<Record<string, ResourceLink[]>>('get_plugin_resources_install_status', { pluginId });
+}
+
 // Library Plugin APIs
 export async function listLibraryPlugins(): Promise<LibraryPlugin[]> {
   return invoke<LibraryPlugin[]>('list_library_plugins');

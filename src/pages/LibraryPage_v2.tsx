@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download, Globe, Package, Trash2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -19,6 +19,7 @@ import { EmptyState, InlineStatus, PageHeader, PageShell, PanelSection, ToolbarR
 import { useI18n } from '@/i18n/provider';
 import { useRegistryStore } from '@/stores/registry-store';
 import { useLibraryStore } from '@/stores/library-store-v2';
+import { useProjectStoreV2 } from '@/stores/project-store-v2';
 import type { LinkType, Resource } from '@/types/v2';
 import { RegistryPluginList } from '@/components/registry/RegistryPluginList';
 
@@ -50,6 +51,7 @@ export function LibraryPage_v2() {
     selectedSource,
   } = useLibraryStore();
   const { registries, installPluginToProject, installPluginToGlobal } = useRegistryStore();
+  const { projects, loadProjects } = useProjectStoreV2();
 
   const [installDialogOpen, setInstallDialogOpen] = useState(false);
   const [deployDialogOpen, setDeployDialogOpen] = useState(false);
@@ -64,10 +66,38 @@ export function LibraryPage_v2() {
   const [globalInstallPluginId, setGlobalInstallPluginId] = useState<string | null>(null);
   const [globalInstallPluginName, setGlobalInstallPluginName] = useState('');
   const [pendingDelete, setPendingDelete] = useState<Resource | null>(null);
+  const [resourceInstall, setResourceInstall] = useState<{
+    mode: 'project' | 'global';
+    resourceId: string;
+    resourceName: string;
+    pluginId: string;
+  } | null>(null);
 
   useEffect(() => {
     loadResources();
   }, [loadResources]);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  const projectNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    projects.forEach((p) => { map[p.id] = p.name; });
+    return map;
+  }, [projects]);
+
+  const handleInstallResource = (resourceId: string, resourceName: string, pluginId: string) => {
+    setResourceInstall({ mode: 'project', resourceId, resourceName, pluginId });
+  };
+
+  const handleInstallResourceToGlobal = (resourceId: string, resourceName: string, pluginId: string) => {
+    setResourceInstall({ mode: 'global', resourceId, resourceName, pluginId });
+  };
+
+  const handleUninstallResource = async (linkIds: string[], pluginId: string) => {
+    await useRegistryStore.getState().uninstallResource(linkIds, pluginId);
+  };
 
   const filteredResources = getFilteredResources();
 
@@ -244,6 +274,10 @@ export function LibraryPage_v2() {
                   setGlobalInstallPluginName(pluginName);
                   setGlobalInstallDialogOpen(true);
                 }}
+                onInstallResource={handleInstallResource}
+                onInstallResourceToGlobal={handleInstallResourceToGlobal}
+                onUninstallResource={handleUninstallResource}
+                projectNames={projectNames}
               />
             </PanelSection>
           )}
@@ -296,6 +330,30 @@ export function LibraryPage_v2() {
         onConfirm={async () => {
           if (globalInstallPluginId) {
             await installPluginToGlobal(globalInstallPluginId);
+          }
+        }}
+      />
+
+      <InstallPluginToProjectDialog
+        open={resourceInstall?.mode === 'project'}
+        onOpenChange={(open) => { if (!open) setResourceInstall(null); }}
+        pluginName=""
+        resourceName={resourceInstall?.resourceName ?? ''}
+        onConfirm={async (projectId) => {
+          if (resourceInstall) {
+            await useRegistryStore.getState().installResourceToProject(resourceInstall.resourceId, projectId, resourceInstall.pluginId);
+          }
+        }}
+      />
+
+      <InstallPluginToGlobalDialog
+        open={resourceInstall?.mode === 'global'}
+        onOpenChange={(open) => { if (!open) setResourceInstall(null); }}
+        pluginName=""
+        resourceName={resourceInstall?.resourceName ?? ''}
+        onConfirm={async () => {
+          if (resourceInstall) {
+            await useRegistryStore.getState().installResourceToGlobal(resourceInstall.resourceId, resourceInstall.pluginId);
           }
         }}
       />

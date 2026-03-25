@@ -12,6 +12,7 @@ interface InstallPluginToGlobalDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pluginName: string;
+  resourceName?: string;
   onConfirm: () => Promise<void>;
 }
 
@@ -19,6 +20,7 @@ export function InstallPluginToGlobalDialog({
   open,
   onOpenChange,
   pluginName,
+  resourceName,
   onConfirm,
 }: InstallPluginToGlobalDialogProps) {
   const [loading, setLoading] = useState(false);
@@ -43,7 +45,11 @@ export function InstallPluginToGlobalDialog({
         </DialogHeader>
         <div className="space-y-4 py-4">
           <p className="text-sm text-muted-foreground">
-            确认将插件 <span className="font-medium text-foreground">{pluginName}</span> 的所有资源安装到全局配置（<code className="text-xs">~/.claude/</code>）？
+            {resourceName ? (
+              <>确认将资源 <span className="font-medium text-foreground">{resourceName}</span> 安装到全局配置（<code className="text-xs">~/.claude/</code>）？</>
+            ) : (
+              <>确认将插件 <span className="font-medium text-foreground">{pluginName}</span> 的所有资源安装到全局配置（<code className="text-xs">~/.claude/</code>）？</>
+            )}
           </p>
           <p className="text-sm text-muted-foreground">
             全局资源将在所有项目中生效。已存在的同名资源将被跳过。
