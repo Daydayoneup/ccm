@@ -16,7 +16,7 @@ interface ProjectStore {
   loading: boolean;
   resourcesLoading: boolean;
   error: string | null;
-  activeTab: ResourceType | 'permissions' | 'env' | 'files';
+  activeTab: ResourceType | 'settings' | 'files';
 
   // Project actions
   loadProjects: () => Promise<void>;
@@ -35,7 +35,7 @@ interface ProjectStore {
   rescanProject: (projectId: string) => Promise<{ added: number; removed: number }>;
   togglePin: (projectId: string) => Promise<void>;
 
-  setActiveTab: (tab: ResourceType | 'permissions' | 'env' | 'files') => void;
+  setActiveTab: (tab: ResourceType | 'settings' | 'files') => void;
   getFilteredResources: () => Resource[];
 }
 
@@ -153,7 +153,7 @@ export const useProjectStoreV2 = create<ProjectStore>((set, get) => ({
     }));
   },
 
-  setActiveTab: (tab: ResourceType | 'permissions' | 'env' | 'files') => {
+  setActiveTab: (tab: ResourceType | 'settings' | 'files') => {
     set({ activeTab: tab });
   },
 

@@ -6,16 +6,15 @@ import { useI18n } from '@/i18n/provider';
 const RESOURCE_TYPES: { value: ResourceType; key: string; dotColor: string }[] = [
   { value: 'skill', key: 'skill', dotColor: 'bg-res-skill' },
   { value: 'agent', key: 'agent', dotColor: 'bg-res-agent' },
-  { value: 'rule', key: 'rule', dotColor: 'bg-res-rule' },
-  { value: 'hook', key: 'hook', dotColor: 'bg-res-hook' },
   { value: 'mcp_server', key: 'mcp_server', dotColor: 'bg-res-mcp' },
+  { value: 'hook', key: 'hook', dotColor: 'bg-res-hook' },
+  { value: 'rule', key: 'rule', dotColor: 'bg-res-rule' },
   { value: 'command', key: 'command', dotColor: 'bg-res-command' },
 ];
 
 const EXTRA_TABS: { value: string; key: string }[] = [
   { value: 'plugin', key: 'plugin' },
-  { value: 'permissions', key: 'permissions' },
-  { value: 'env', key: 'env' },
+  { value: 'settings', key: 'settings' },
   { value: 'files', key: 'files' },
 ];
 
@@ -23,13 +22,12 @@ interface ResourceTypeTabsProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   includePlugin?: boolean;
-  includePermissions?: boolean;
-  includeEnv?: boolean;
+  includeSettings?: boolean;
   includeFiles?: boolean;
   counts?: Partial<Record<string, number>>;
 }
 
-export function ResourceTypeTabs({ activeTab, onTabChange, includePlugin, includePermissions, includeEnv, includeFiles, counts }: ResourceTypeTabsProps) {
+export function ResourceTypeTabs({ activeTab, onTabChange, includePlugin, includeSettings, includeFiles, counts }: ResourceTypeTabsProps) {
   const { t, formatNumber } = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -38,8 +36,7 @@ export function ResourceTypeTabs({ activeTab, onTabChange, includePlugin, includ
   const extras = EXTRA_TABS.filter(
     (t) =>
       (t.value === 'plugin' && includePlugin) ||
-      (t.value === 'permissions' && includePermissions) ||
-      (t.value === 'env' && includeEnv) ||
+      (t.value === 'settings' && includeSettings) ||
       (t.value === 'files' && includeFiles)
   );
   const extrasWithoutFiles = extras.filter((t) => t.value !== 'files');

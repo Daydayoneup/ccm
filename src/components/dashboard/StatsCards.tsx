@@ -49,7 +49,7 @@ const cards = [
     labelKey: 'dashboard.metrics.registries',
     icon: CloudCog,
     countKey: 'registry_count' as const,
-    path: '/registries',
+    path: '/library',
     borderColor: 'border-l-res-mcp',
     iconColor: 'text-res-mcp',
   },

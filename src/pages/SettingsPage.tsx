@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { listEnvVars, setEnvVar, deleteEnvVar } from '@/lib/tauri-api';
-import { Database, FolderOpen, Info, Variable } from 'lucide-react';
+import { Database, FolderOpen, Info, Settings, Variable } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -12,6 +12,7 @@ import { QuickLaunchCard } from '@/components/settings/QuickLaunchCard';
 import { SyncCard } from '@/components/settings/SyncCard';
 import { TerminalCard } from '@/components/settings/TerminalCard';
 import { EnvVarTable } from '@/components/shared/EnvVarTable';
+import { SettingsEditor } from '@/components/settings-editor/SettingsEditor';
 import { useI18n } from '@/i18n/provider';
 import type { MergedEnvVar } from '@/types/v2';
 
@@ -39,6 +40,19 @@ export function SettingsPage() {
       <ApiSettingsCard />
       <QuickLaunchCard />
       <TerminalCard />
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Settings className="size-5" />
+            <CardTitle>{t('settingsEditor.globalTitle')}</CardTitle>
+          </div>
+          <CardDescription>{t('settingsEditor.globalDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SettingsEditor project={null} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

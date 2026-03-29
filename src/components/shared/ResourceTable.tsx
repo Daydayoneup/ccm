@@ -16,14 +16,6 @@ interface ResourceTableProps {
   showScope?: boolean;
 }
 
-/** Determine display scope: if resource was installed from library, show 'library' instead of raw scope */
-function getDisplayScope(resource: Resource): string {
-  if (resource.installed_from_id) {
-    return 'library';
-  }
-  return resource.scope;
-}
-
 const borderClasses: Record<string, string> = {
   skill: 'res-border-skill',
   agent: 'res-border-agent',
@@ -62,7 +54,12 @@ export function ResourceTable({ resources, onDelete, onBackup, showScope }: Reso
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="truncate text-sm font-semibold">{resource.name}</h3>
                     {(showScope || resource.scope !== 'project' || resource.installed_from_id) && (
-                      <ScopeBadge scope={getDisplayScope(resource)} className="shrink-0" />
+                      <>
+                        {resource.installed_from_id && resource.scope !== 'library' && (
+                          <ScopeBadge scope="library" className="shrink-0" />
+                        )}
+                        <ScopeBadge scope={resource.scope} className="shrink-0" />
+                      </>
                     )}
                   </div>
                   <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">

@@ -30,10 +30,12 @@ export function CreateResourceDialog({
   const { t } = useI18n();
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     if (!name.trim()) return;
     setLoading(true);
+    setError(null);
     try {
       const content = resourceTemplates[resourceType](name.trim());
       const result = await onSubmit(resourceType, name.trim(), content);
@@ -43,21 +45,22 @@ export function CreateResourceDialog({
         onCreated(result as Resource);
       }
     } catch (e) {
-      console.error(e);
+      setError(String(e));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!loading) onOpenChange(o); }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!loading) { setError(null); onOpenChange(o); } }}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>
             {t('projectDetail.createDialogTitle', { type: t(`resourceTypes.${resourceType}`) })}
           </DialogTitle>
         </DialogHeader>
-        <div className="py-2">
+        <div className="space-y-2 py-2">
+          {error && <div className="rounded-lg border border-destructive bg-destructive/10 p-2 text-xs text-destructive">{error}</div>}
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}

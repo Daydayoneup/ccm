@@ -18,6 +18,8 @@ interface BackupConfirmDialogProps {
   onConfirm: (replaceWithLink: boolean) => void;
   name: string;
   path: string;
+  /** Hide "replace with symlink" option for ConfigBased resources (MCP/Hook) */
+  showReplaceOption?: boolean;
 }
 
 export function BackupConfirmDialog({
@@ -26,6 +28,7 @@ export function BackupConfirmDialog({
   onConfirm,
   name,
   path,
+  showReplaceOption = true,
 }: BackupConfirmDialogProps) {
   const { t } = useI18n();
   const [replaceWithLink, setReplaceWithLink] = useState(false);
@@ -50,22 +53,26 @@ export function BackupConfirmDialog({
               <p className="truncate font-mono text-xs text-muted-foreground">
                 {path}
               </p>
-              <label className="flex cursor-pointer items-center gap-2 rounded-lg border p-3 transition-colors hover:bg-muted">
-                <input
-                  type="checkbox"
-                  checked={replaceWithLink}
-                  onChange={(e) => setReplaceWithLink(e.target.checked)}
-                  className="size-4 rounded border-input accent-primary"
-                />
-                <span className="text-sm font-medium">{t('dialogs.replaceWithLink')}</span>
-              </label>
-              {replaceWithLink && (
-                <div className="flex gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm text-primary">
-                  <Link2 className="mt-0.5 size-4 shrink-0" />
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    {t('dialogs.replaceWithLinkHint')}
-                  </p>
-                </div>
+              {showReplaceOption && (
+                <>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border p-3 transition-colors hover:bg-muted">
+                    <input
+                      type="checkbox"
+                      checked={replaceWithLink}
+                      onChange={(e) => setReplaceWithLink(e.target.checked)}
+                      className="size-4 rounded border-input accent-primary"
+                    />
+                    <span className="text-sm font-medium">{t('dialogs.replaceWithLink')}</span>
+                  </label>
+                  {replaceWithLink && (
+                    <div className="flex gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm text-primary">
+                      <Link2 className="mt-0.5 size-4 shrink-0" />
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        {t('dialogs.replaceWithLinkHint')}
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </AlertDialogDescription>

@@ -510,3 +510,13 @@ export async function searchResources(query: string): Promise<Resource[]> {
 export async function listProjectsRanked(): Promise<Project[]> {
   return invoke<Project[]>('list_projects_ranked');
 }
+
+// --- Settings File ---
+
+export async function readSettingsFile(path: string): Promise<Record<string, unknown>> {
+  return invoke<Record<string, unknown>>('read_settings_file', { path });
+}
+
+export async function writeSettingsFile(path: string, content: Record<string, unknown>): Promise<void> {
+  return invoke<void>('write_settings_file', { path, content });
+}

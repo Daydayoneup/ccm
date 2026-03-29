@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { updateMcpServerConfig, createMcpServer, deleteProjectResource } from '@/lib/tauri-api';
-import { Pencil, Plus, Server, Trash2 } from 'lucide-react';
+import { Archive, Pencil, Plus, Server, Trash2 } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ScopeBadge } from '@/lib/scope-utils';
+import { BackupConfirmDialog } from './BackupConfirmDialog';
 import { useI18n } from '@/i18n/provider';
 import type { Resource } from '@/types/v2';
 
@@ -27,6 +28,8 @@ interface McpServerListProps {
   projectId?: string;
   /** Called after a create/edit to refresh the resource list */
   onRefresh?: () => void;
+  /** Called when user confirms backup to library */
+  onBackup?: (id: string, replaceWithLink: boolean) => void;
 }
 
 /** Parse MCP server details from Resource.metadata JSON */
@@ -53,6 +56,7 @@ export function McpServerList({
   emptyHint,
   projectId,
   onRefresh,
+  onBackup,
 }: McpServerListProps) {
   const { t } = useI18n();
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
@@ -63,6 +67,7 @@ export function McpServerList({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingDeleteResource, setPendingDeleteResource] = useState<Resource | null>(null);
+  const [pendingBackup, setPendingBackup] = useState<Resource | null>(null);
 
   const handleEdit = (resource: Resource) => {
     setEditingResource(resource);
@@ -137,10 +142,24 @@ export function McpServerList({
                   <div className="flex items-center gap-2">
                     <Server className="size-4 text-muted-foreground" />
                     <span className="font-medium">{resource.name}</span>
+                    {resource.installed_from_id && resource.scope !== 'library' && (
+                      <ScopeBadge scope="library" />
+                    )}
                     <ScopeBadge scope={resource.scope} />
                   </div>
                   <div className="flex items-center gap-2">
                     {serverType ? <Badge variant="secondary">{serverType}</Badge> : null}
+                    {resource.scope !== 'library' && onBackup && (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-primary"
+                        onClick={() => setPendingBackup(resource)}
+                        title={t('resources.backupToLibrary')}
+                      >
+                        <Archive className="size-3.5" />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon-sm"
@@ -277,6 +296,26 @@ export function McpServerList({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {onBackup && (
+        <BackupConfirmDialog
+          open={!!pendingBackup}
+          onClose={() => setPendingBackup(null)}
+          showReplaceOption={false}
+          onConfirm={async (replaceWithLink) => {
+            if (pendingBackup) {
+              try {
+                await onBackup(pendingBackup.id, replaceWithLink);
+              } catch (e) {
+                console.error('Backup failed:', e);
+              }
+              setPendingBackup(null);
+            }
+          }}
+          name={pendingBackup?.name ?? ''}
+          path={pendingBackup?.source_path ?? ''}
+        />
+      )}
     </>
   );
 }
