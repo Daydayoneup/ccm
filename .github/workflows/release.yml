@@ -39,8 +39,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
         with:
-          tagName: __VERSION__
-          releaseName: CCM __VERSION__
+          tagName: ${{ github.ref_name }}
+          releaseName: CCM ${{ github.ref_name }}
           releaseBody: 'See the assets below to download and install.'
           releaseDraft: false
           prerelease: false
