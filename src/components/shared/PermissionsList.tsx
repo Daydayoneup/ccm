@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { getProjectPermissions, updateProjectPermissions } from '@/lib/tauri-api';
 import { Check, Pencil, Plus, Shield, ShieldOff, Trash2, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -177,7 +177,7 @@ export function PermissionsList({ projectId }: PermissionsListProps) {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    invoke<Permissions>('get_project_permissions', { projectId })
+    getProjectPermissions(projectId)
       .then(setPermissions)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
@@ -187,11 +187,7 @@ export function PermissionsList({ projectId }: PermissionsListProps) {
     setSaving(true);
     setError(null);
     try {
-      await invoke('update_project_permissions', {
-        projectId,
-        allow: updated.allow,
-        deny: updated.deny,
-      });
+      await updateProjectPermissions(projectId, updated.allow, updated.deny);
       setPermissions(updated);
     } catch (error) {
       setError(String(error));

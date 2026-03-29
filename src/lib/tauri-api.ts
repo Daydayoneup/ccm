@@ -29,6 +29,11 @@ export async function isSymlinkValid(target: string): Promise<boolean> {
 
 // --- File Commands ---
 
+/** Check if a path is a directory. */
+export async function pathIsDirectory(path: string): Promise<boolean> {
+  return invoke<boolean>('path_is_directory', { path });
+}
+
 /** Read file contents as a string. */
 export async function readFile(path: string): Promise<string> {
   return invoke<string>('read_file', { path });
@@ -61,7 +66,7 @@ export async function fileContentHash(path: string): Promise<string> {
 
 // --- Registry Commands ---
 
-import type { Registry, Resource, ResourceLink, ResourceVersion, SkillFrontmatter, SkillFrontmatterData } from '@/types/v2';
+import type { DashboardStats, DiscoveredProject, InstalledResourceInfo, LibraryResourceWithInstalls, LinkType, MergedEnvVar, Plugin, Project, Registry, Resource, ResourceLink, ResourceType, ResourceVersion, SkillFrontmatter, SkillFrontmatterData } from '@/types/v2';
 
 /** List all registries */
 export async function listRegistries(): Promise<Registry[]> {
@@ -120,7 +125,7 @@ export async function deployFromRegistry(resourceId: string): Promise<ResourceLi
 
 // --- Registry Plugin & Library Plugin APIs ---
 
-import type { RegistryPlugin, LibraryPlugin, McpServer } from '@/types/v2';
+import type { RegistryPlugin, LibraryPlugin } from '@/types/v2';
 
 // Registry Plugin APIs
 export async function listRegistryPlugins(registryId: string): Promise<RegistryPlugin[]> {
@@ -129,10 +134,6 @@ export async function listRegistryPlugins(registryId: string): Promise<RegistryP
 
 export async function getRegistryPluginResources(pluginId: string): Promise<Resource[]> {
   return invoke<Resource[]>('get_registry_plugin_resources', { pluginId });
-}
-
-export async function getRegistryPluginMcpServers(pluginId: string): Promise<McpServer[]> {
-  return invoke<McpServer[]>('get_registry_plugin_mcp_servers', { pluginId });
 }
 
 export async function installPluginToProject(pluginId: string, projectId: string): Promise<unknown> {
@@ -239,4 +240,273 @@ export async function renamePath(oldPath: string, newPath: string): Promise<void
 /** Fork a library resource to create an independent copy, optionally with a new name. */
 export async function forkToLibrary(resourceId: string, newName?: string): Promise<Resource> {
   return invoke<Resource>('fork_to_library', { resourceId, newName: newName ?? null });
+}
+
+/** Update an installed resource to the latest registry version. */
+export async function updateInstalledResource(resourceId: string): Promise<void> {
+  return invoke<void>('update_installed_resource', { resourceId });
+}
+
+/** Retain a removed registry resource as a local library resource. */
+export async function retainAsLibrary(resourceId: string): Promise<Resource> {
+  return invoke<Resource>('retain_as_library', { resourceId });
+}
+
+/** List all installed resources with their links and registry info. */
+export async function listInstalledResources(): Promise<InstalledResourceInfo[]> {
+  return invoke<InstalledResourceInfo[]>('list_installed_resources');
+}
+
+/** Compute the content hash for an installed resource file. */
+export async function computeInstalledHash(resourceType: string, resourceName: string): Promise<string | null> {
+  return invoke<string | null>('compute_installed_hash', { resourceType, resourceName });
+}
+
+// --- Environment Variables ---
+
+export async function listMergedEnvVars(projectId: string): Promise<MergedEnvVar[]> {
+  return invoke<MergedEnvVar[]>('list_merged_env_vars', { projectId });
+}
+
+export async function setEnvVar(projectId: string | null, key: string, value: string): Promise<void> {
+  return invoke<void>('set_env_var', { projectId, key, value });
+}
+
+export async function deleteEnvVar(id: string): Promise<void> {
+  return invoke<void>('delete_env_var', { id });
+}
+
+// --- Terminal ---
+
+export async function launchClaudeInTerminal(projectPath: string, terminal?: string): Promise<void> {
+  return invoke<void>('launch_claude_in_terminal', { projectPath, terminal: terminal ?? null });
+}
+
+export async function getTerminalPreference(): Promise<string | null> {
+  return invoke<string | null>('get_terminal_preference');
+}
+
+export async function setTerminalPreference(terminal: string): Promise<void> {
+  return invoke<void>('set_terminal_preference', { terminal });
+}
+
+// --- App Settings ---
+
+export async function getAppSetting(key: string): Promise<string | null> {
+  return invoke<string | null>('get_app_setting', { key });
+}
+
+export async function setAppSetting(key: string, value: string): Promise<void> {
+  return invoke<void>('set_app_setting', { key, value });
+}
+
+// --- MCP Servers ---
+
+export async function updateMcpServerConfig(resourceId: string, newConfigJson: string): Promise<Resource> {
+  return invoke<Resource>('update_mcp_server_config', { resourceId, newConfigJson });
+}
+
+export async function createMcpServer(projectId: string, name: string, configJson: string): Promise<Resource> {
+  return invoke<Resource>('create_mcp_server', { projectId, name, configJson });
+}
+
+// --- Permissions ---
+
+export async function updateProjectPermissions(projectId: string, allow: string[], deny: string[]): Promise<void> {
+  return invoke<void>('update_project_permissions', { projectId, allow, deny });
+}
+
+// --- Sync ---
+
+export async function fullSync(): Promise<void> {
+  return invoke<void>('full_sync');
+}
+
+export async function syncScope(scope: string): Promise<void> {
+  return invoke<void>('sync_scope', { scope });
+}
+
+// --- Proxy ---
+
+export interface ProxyConfig {
+  enabled: boolean;
+  proxy_type: string;
+  host: string;
+  port: string;
+  username: string | null;
+  password: string | null;
+}
+
+export async function getProxyConfig(): Promise<ProxyConfig> {
+  return invoke<ProxyConfig>('get_proxy_config');
+}
+
+export async function saveProxyConfig(config: ProxyConfig): Promise<void> {
+  return invoke<void>('save_proxy_config', { config });
+}
+
+export async function testProxy(config: unknown): Promise<string> {
+  return invoke<string>('test_proxy', { config });
+}
+
+// --- Permissions (read) ---
+
+export async function getProjectPermissions(projectId: string): Promise<{ allow: string[]; deny: string[] }> {
+  return invoke<{ allow: string[]; deny: string[] }>('get_project_permissions', { projectId });
+}
+
+// --- Project Commands ---
+
+export async function listProjectsV2(): Promise<Project[]> {
+  return invoke<Project[]>('list_projects_v2');
+}
+
+export async function registerProjectV2(path: string): Promise<Project> {
+  return invoke<Project>('register_project_v2', { path });
+}
+
+export async function removeProjectV2(id: string, deleteFromDisk: boolean): Promise<{ warnings: string[] }> {
+  return invoke<{ warnings: string[] }>('remove_project_v2', { id, deleteFromDisk });
+}
+
+export async function scanAndDiscoverProjects(directories: string[]): Promise<Project[]> {
+  return invoke<Project[]>('scan_and_discover_projects', { directories });
+}
+
+export async function discoverClaudeProjects(): Promise<DiscoveredProject[]> {
+  return invoke<DiscoveredProject[]>('discover_claude_projects');
+}
+
+export async function listProjectResources(projectId: string, resourceType?: string): Promise<Resource[]> {
+  return invoke<Resource[]>('list_project_resources', { projectId, resourceType: resourceType ?? null });
+}
+
+export async function createProjectResource(projectId: string, resourceType: ResourceType, name: string, content: string): Promise<Resource> {
+  return invoke<Resource>('create_project_resource', { projectId, resourceType, name, content });
+}
+
+export async function deleteProjectResource(resourceId: string): Promise<void> {
+  return invoke<void>('delete_project_resource', { resourceId });
+}
+
+export async function publishToLibrary(resourceId: string, replaceWithSymlink: boolean): Promise<Resource> {
+  return invoke<Resource>('publish_to_library', { resourceId, replaceWithSymlink });
+}
+
+export async function installFromLibrary(libraryResourceId: string, projectId: string, linkType: string): Promise<void> {
+  return invoke<void>('install_from_library', { libraryResourceId, projectId, linkType });
+}
+
+export async function rescanProject(projectId: string): Promise<{ added: number; removed: number }> {
+  return invoke<{ added: number; removed: number }>('rescan_project', { projectId });
+}
+
+export async function toggleProjectPin(projectId: string): Promise<Project> {
+  return invoke<Project>('toggle_project_pin', { projectId });
+}
+
+// --- Global Resource Commands ---
+
+export async function listGlobalResources(resourceType?: string): Promise<Resource[]> {
+  return invoke<Resource[]>('list_global_resources', { resourceType: resourceType ?? null });
+}
+
+export async function createGlobalResource(resourceType: ResourceType, name: string, content: string): Promise<Resource> {
+  return invoke<Resource>('create_global_resource', { resourceType, name, content });
+}
+
+export async function deleteGlobalResource(id: string, deleteFromDisk: boolean): Promise<void> {
+  return invoke<void>('delete_global_resource', { id, deleteFromDisk });
+}
+
+export async function backupToLibrary(resourceId: string, replaceWithLink: boolean): Promise<Resource> {
+  return invoke<Resource>('backup_to_library', { resourceId, replaceWithLink });
+}
+
+// --- Env Vars (raw list) ---
+
+export async function listEnvVars(projectId: string | null): Promise<MergedEnvVar[]> {
+  return invoke<MergedEnvVar[]>('list_env_vars', { projectId });
+}
+
+// --- API Server ---
+
+export async function toggleApiServer(enabled: boolean): Promise<void> {
+  return invoke<void>('toggle_api_server', { enabled });
+}
+
+export async function getApiTokenStatus(): Promise<string | null> {
+  return invoke<string | null>('get_api_token_status');
+}
+
+export async function generateApiToken(): Promise<string> {
+  return invoke<string>('generate_api_token');
+}
+
+// --- Library Resource Commands ---
+
+export async function listLibraryResourcesWithInstalls(resourceType?: string): Promise<LibraryResourceWithInstalls[]> {
+  return invoke<LibraryResourceWithInstalls[]>('list_library_resources_with_installs', { resourceType: resourceType ?? null });
+}
+
+export async function createLibraryResource(resourceType: ResourceType, name: string, description: string, content: string): Promise<Resource> {
+  return invoke<Resource>('create_library_resource', { resourceType, name, description, content });
+}
+
+export async function deleteLibraryResource(id: string, deleteFromDisk: boolean): Promise<void> {
+  return invoke<void>('delete_library_resource', { id, deleteFromDisk });
+}
+
+export async function installToProject(resourceId: string, projectId: string, linkType: LinkType): Promise<void> {
+  return invoke<void>('install_to_project', { resourceId, projectId, linkType });
+}
+
+export async function deployToGlobal(resourceId: string, linkType: LinkType): Promise<void> {
+  return invoke<void>('deploy_to_global', { resourceId, linkType });
+}
+
+export async function listResourceLinks(resourceId: string): Promise<ResourceLink[]> {
+  return invoke<ResourceLink[]>('list_resource_links', { resourceId });
+}
+
+export async function checkLinkHealth(): Promise<{ link_id: string; target_path: string; healthy: boolean; error: string | null }[]> {
+  return invoke<{ link_id: string; target_path: string; healthy: boolean; error: string | null }[]>('check_link_health', {});
+}
+
+// --- Plugin Commands ---
+
+export async function listPluginsV2(): Promise<Plugin[]> {
+  return invoke<Plugin[]>('list_plugins_v2');
+}
+
+export async function scanPlugins(): Promise<Plugin[]> {
+  return invoke<Plugin[]>('scan_plugins');
+}
+
+export async function getPluginResources(pluginId: string, resourceType?: string): Promise<Resource[]> {
+  return invoke<Resource[]>('get_plugin_resources', { pluginId, resourceType: resourceType ?? null });
+}
+
+export async function extractToLibrary(resourceId: string): Promise<Resource> {
+  return invoke<Resource>('extract_to_library', { resourceId });
+}
+
+// --- Dashboard Commands ---
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  return invoke<DashboardStats>('get_dashboard_stats');
+}
+
+export async function getRecentResources(limit: number): Promise<Resource[]> {
+  return invoke<Resource[]>('get_recent_resources', { limit });
+}
+
+export async function searchResources(query: string): Promise<Resource[]> {
+  return invoke<Resource[]>('search_resources', { query });
+}
+
+// --- Ranked Project List ---
+
+export async function listProjectsRanked(): Promise<Project[]> {
+  return invoke<Project[]>('list_projects_ranked');
 }

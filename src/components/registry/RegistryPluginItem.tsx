@@ -1,12 +1,11 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Download, ExternalLink, Globe, Server } from 'lucide-react';
+import { navigateToResource } from '@/lib/navigation';
+import { ChevronDown, ChevronRight, Download, ExternalLink, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useRegistryStore } from '@/stores/registry-store';
-import { McpServerList } from '@/components/shared/McpServerList';
-import { ResourceInstallDropdown } from './ResourceInstallDropdown';
-import { ResourceUninstallPopover } from './ResourceUninstallPopover';
+import { ResourceCard, getResourceInstallStatus } from '@/components/shared/ResourceCard';
 import type { RegistryPlugin, ResourceLink } from '@/types/v2';
 
 interface RegistryPluginItemProps {
@@ -19,26 +18,22 @@ interface RegistryPluginItemProps {
   projectNames: Record<string, string>;
 }
 
-export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal, onInstallResource, onInstallResourceToGlobal, onUninstallResource, projectNames }: RegistryPluginItemProps) {
+export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal, onInstallResource, onInstallResourceToGlobal }: RegistryPluginItemProps) {
   const navigate = useNavigate();
-  const { expandedPlugins, togglePluginExpanded, pluginResources, loadPluginResources, pluginMcpServers, loadPluginMcpServers, resourceInstallStatus, loadResourceInstallStatus } =
-    useRegistryStore();
+  const { expandedPlugins, togglePluginExpanded, pluginResources, loadPluginResources,
+    resourceInstallStatus, loadResourceInstallStatus } = useRegistryStore();
 
   const isExpanded = expandedPlugins.has(plugin.id);
   const resources = pluginResources[plugin.id] || [];
-  const mcpServers = pluginMcpServers[plugin.id] || [];
 
   useEffect(() => {
     if (isExpanded && !pluginResources[plugin.id]) {
       loadPluginResources(plugin.id);
     }
-    if (isExpanded && !pluginMcpServers[plugin.id]) {
-      loadPluginMcpServers(plugin.id);
-    }
     if (isExpanded) {
       loadResourceInstallStatus(plugin.id);
     }
-  }, [isExpanded, plugin.id, pluginResources, loadPluginResources, pluginMcpServers, loadPluginMcpServers, loadResourceInstallStatus]);
+  }, [isExpanded, plugin.id, pluginResources, loadPluginResources, loadResourceInstallStatus]);
 
   return (
     <div className="rounded-md border">
@@ -52,13 +47,7 @@ export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal, onIns
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-start gap-2">
-              <span
-                className="min-w-0 break-words font-medium hover:underline"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/registry-plugins/${plugin.id}`);
-                }}
-              >
+              <span className="min-w-0 break-words font-medium">
                 {plugin.name}
               </span>
               {plugin.category && (
@@ -118,55 +107,22 @@ export function RegistryPluginItem({ plugin, onInstall, onInstallToGlobal, onIns
           {resources.length > 0 && (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {resources.map((resource) => {
-                const installStatus = resourceInstallStatus[plugin.id] || {};
-                const resourceLinks: ResourceLink[] = installStatus[resource.id] || [];
-                const isInstalled = resourceLinks.length > 0;
+                const installStatusMap = resourceInstallStatus[plugin.id] || {};
+                const resourceLinks: ResourceLink[] = installStatusMap[resource.id] || [];
+                const status = getResourceInstallStatus(resource, resourceLinks);
 
                 return (
-                  <div
+                  <ResourceCard
                     key={resource.id}
-                    className="rounded-md border bg-card/90 p-4"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-medium">{resource.name}</span>
-                          {isInstalled && (
-                            <Badge variant="secondary" className="shrink-0 text-xs">已安装</Badge>
-                          )}
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                          {resource.description || '暂无描述'}
-                        </p>
-                      </div>
-                      <div className="shrink-0">
-                        {isInstalled ? (
-                          <ResourceUninstallPopover
-                            links={resourceLinks}
-                            projectNames={projectNames}
-                            onUninstall={(linkIds) => onUninstallResource(linkIds, plugin.id)}
-                          />
-                        ) : (
-                          <ResourceInstallDropdown
-                            onInstallToProject={() => onInstallResource(resource.id, resource.name, plugin.id)}
-                            onInstallToGlobal={() => onInstallResourceToGlobal(resource.id, resource.name, plugin.id)}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                    resource={resource}
+                    status={status}
+                    onInstallToProject={() => onInstallResource(resource.id, resource.name, plugin.id)}
+                    onInstallToGlobal={() => onInstallResourceToGlobal(resource.id, resource.name, plugin.id)}
+                    onClick={() => navigateToResource(navigate, resource)}
+                  />
                 );
               })}
             </div>
-          )}
-          {mcpServers.length > 0 && (
-            <>
-              <div className="flex items-center gap-2 pt-2">
-                <Server className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">MCP Servers</span>
-              </div>
-              <McpServerList servers={mcpServers} />
-            </>
           )}
         </div>
       )}

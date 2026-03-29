@@ -8,6 +8,7 @@ import {
   removeResourceFromLibraryPlugin,
   getLibraryPluginResources,
 } from '@/lib/tauri-api';
+import { asyncAction } from '@/lib/store-utils';
 
 interface LibraryPluginStore {
   plugins: LibraryPlugin[];
@@ -33,15 +34,8 @@ export const useLibraryPluginStore = create<LibraryPluginStore>((set, get) => ({
   error: null,
 
   loadPlugins: async () => {
-    try {
-      set({ loading: true, error: null });
-      const plugins = await listLibraryPlugins();
-      set({ plugins });
-    } catch (e) {
-      set({ error: String(e) });
-    } finally {
-      set({ loading: false });
-    }
+    const plugins = await asyncAction(set, 'loading', listLibraryPlugins);
+    if (plugins) set({ plugins });
   },
 
   createPlugin: async (name, description, category) => {
@@ -71,12 +65,8 @@ export const useLibraryPluginStore = create<LibraryPluginStore>((set, get) => ({
   },
 
   loadPluginResources: async (pluginId) => {
-    try {
-      const resources = await getLibraryPluginResources(pluginId);
-      set({ resources });
-    } catch (e) {
-      set({ error: String(e) });
-    }
+    const resources = await asyncAction(set, 'loading', () => getLibraryPluginResources(pluginId));
+    if (resources) set({ resources });
   },
 
   addResource: async (pluginId, resourceId) => {

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { getAppSetting, setAppSetting } from '@/lib/tauri-api';
 import { en, type I18nMessages } from './en';
 import { zhCN } from './zh-CN';
 
@@ -70,7 +70,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    invoke<string | null>('get_app_setting', { key: 'locale' })
+    getAppSetting('locale')
       .then((stored) => {
         if (!mounted) return;
         if (stored === 'zh-CN' || stored === 'en' || stored === 'system') {
@@ -91,7 +91,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const setLocale = useCallback(async (nextLocale: Locale) => {
     setLocaleState(nextLocale);
     try {
-      await invoke('set_app_setting', { key: 'locale', value: nextLocale });
+      await setAppSetting('locale', nextLocale);
     } catch (error) {
       console.error('Failed to persist locale setting:', error);
     }

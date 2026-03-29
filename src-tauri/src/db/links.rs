@@ -2,12 +2,14 @@ use crate::db::Database;
 use crate::models::v2::ResourceLink;
 use rusqlite::{params, Result};
 
+const LINK_COLUMNS: &str = "id, resource_id, target_scope, target_path, config_key, project_id, link_type, created_at, installed_hash";
+
 impl Database {
     pub fn insert_link(&self, link: &ResourceLink) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO resource_links (id, resource_id, target_scope, target_path, config_key, project_id, link_type, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO resource_links (id, resource_id, target_scope, target_path, config_key, project_id, link_type, created_at, installed_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 link.id,
                 link.resource_id,
@@ -17,6 +19,7 @@ impl Database {
                 link.project_id,
                 link.link_type,
                 link.created_at,
+                link.installed_hash,
             ],
         )?;
         Ok(())
@@ -25,8 +28,7 @@ impl Database {
     pub fn get_link(&self, id: &str) -> Result<Option<ResourceLink>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_id, target_scope, target_path, config_key, project_id, link_type, created_at
-             FROM resource_links WHERE id = ?1",
+            &format!("SELECT {} FROM resource_links WHERE id = ?1", LINK_COLUMNS)
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
             Ok(ResourceLink {
@@ -38,6 +40,7 @@ impl Database {
                 project_id: row.get(5)?,
                 link_type: row.get(6)?,
                 created_at: row.get(7)?,
+                installed_hash: row.get(8)?,
             })
         })?;
         match rows.next() {
@@ -49,8 +52,7 @@ impl Database {
     pub fn list_links_by_resource(&self, resource_id: &str) -> Result<Vec<ResourceLink>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_id, target_scope, target_path, config_key, project_id, link_type, created_at
-             FROM resource_links WHERE resource_id = ?1",
+            &format!("SELECT {} FROM resource_links WHERE resource_id = ?1", LINK_COLUMNS)
         )?;
         let rows = stmt.query_map(params![resource_id], |row| {
             Ok(ResourceLink {
@@ -62,6 +64,7 @@ impl Database {
                 project_id: row.get(5)?,
                 link_type: row.get(6)?,
                 created_at: row.get(7)?,
+                installed_hash: row.get(8)?,
             })
         })?;
         rows.collect()
@@ -70,8 +73,7 @@ impl Database {
     pub fn list_links_by_project(&self, project_id: &str) -> Result<Vec<ResourceLink>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_id, target_scope, target_path, config_key, project_id, link_type, created_at
-             FROM resource_links WHERE project_id = ?1",
+            &format!("SELECT {} FROM resource_links WHERE project_id = ?1", LINK_COLUMNS)
         )?;
         let rows = stmt.query_map(params![project_id], |row| {
             Ok(ResourceLink {
@@ -83,6 +85,7 @@ impl Database {
                 project_id: row.get(5)?,
                 link_type: row.get(6)?,
                 created_at: row.get(7)?,
+                installed_hash: row.get(8)?,
             })
         })?;
         rows.collect()
@@ -91,8 +94,7 @@ impl Database {
     pub fn list_global_links(&self) -> Result<Vec<ResourceLink>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_id, target_scope, target_path, config_key, project_id, link_type, created_at
-             FROM resource_links WHERE project_id IS NULL AND target_scope = 'global'",
+            &format!("SELECT {} FROM resource_links WHERE project_id IS NULL AND target_scope = 'global'", LINK_COLUMNS)
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(ResourceLink {
@@ -104,6 +106,7 @@ impl Database {
                 project_id: row.get(5)?,
                 link_type: row.get(6)?,
                 created_at: row.get(7)?,
+                installed_hash: row.get(8)?,
             })
         })?;
         rows.collect()
@@ -112,8 +115,7 @@ impl Database {
     pub fn list_all_links(&self) -> Result<Vec<ResourceLink>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_id, target_scope, target_path, config_key, project_id, link_type, created_at
-             FROM resource_links",
+            &format!("SELECT {} FROM resource_links", LINK_COLUMNS)
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(ResourceLink {
@@ -125,9 +127,19 @@ impl Database {
                 project_id: row.get(5)?,
                 link_type: row.get(6)?,
                 created_at: row.get(7)?,
+                installed_hash: row.get(8)?,
             })
         })?;
         rows.collect()
+    }
+
+    pub fn update_link_installed_hash(&self, link_id: &str, installed_hash: Option<&str>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE resource_links SET installed_hash = ?1 WHERE id = ?2",
+            params![installed_hash, link_id],
+        )?;
+        Ok(())
     }
 
     pub fn delete_link(&self, id: &str) -> Result<()> {
@@ -139,8 +151,7 @@ impl Database {
     pub fn get_link_by_target_path(&self, target_path: &str) -> Result<Option<ResourceLink>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_id, target_scope, target_path, config_key, project_id, link_type, created_at
-             FROM resource_links WHERE target_path = ?1",
+            &format!("SELECT {} FROM resource_links WHERE target_path = ?1", LINK_COLUMNS)
         )?;
         let mut rows = stmt.query_map(params![target_path], |row| {
             Ok(ResourceLink {
@@ -152,6 +163,7 @@ impl Database {
                 project_id: row.get(5)?,
                 link_type: row.get(6)?,
                 created_at: row.get(7)?,
+                installed_hash: row.get(8)?,
             })
         })?;
         match rows.next() {
@@ -194,6 +206,7 @@ mod tests {
             project_id,
             link_type: "symlink".to_string(),
             created_at: "2026-03-01T00:00:00Z".to_string(),
+            installed_hash: None,
         }
     }
 
@@ -383,6 +396,7 @@ mod tests {
             project_id: None,
             link_type: "symlink".to_string(),
             created_at: "2026-03-01T00:00:00Z".to_string(),
+            installed_hash: None,
         };
 
         db.insert_link(&link1).unwrap();
@@ -469,6 +483,7 @@ mod tests {
             project_id: Some("proj1".to_string()),
             link_type: "config".to_string(),
             created_at: "2026-03-01T00:00:00Z".to_string(),
+            installed_hash: None,
         };
         db.insert_link(&link).unwrap();
 
@@ -500,5 +515,52 @@ mod tests {
         }
 
         assert!(db.get_link("link1").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_insert_link_with_installed_hash() {
+        let db = Database::new_in_memory().unwrap();
+        db.migrate_v7_to_v8().unwrap();
+        setup_test_data(&db);
+
+        let link = ResourceLink {
+            id: "link-hash".to_string(),
+            resource_id: "res1".to_string(),
+            target_scope: "global".to_string(),
+            target_path: "/target/link-hash".to_string(),
+            config_key: None,
+            project_id: None,
+            link_type: "symlink".to_string(),
+            created_at: "2026-03-01T00:00:00Z".to_string(),
+            installed_hash: Some("abc123hash".to_string()),
+        };
+        db.insert_link(&link).unwrap();
+
+        let fetched = db.get_link("link-hash").unwrap().unwrap();
+        assert_eq!(fetched.installed_hash, Some("abc123hash".to_string()));
+    }
+
+    #[test]
+    fn test_update_link_installed_hash() {
+        let db = Database::new_in_memory().unwrap();
+        db.migrate_v7_to_v8().unwrap();
+        setup_test_data(&db);
+
+        let link = make_link("link1", None);
+        db.insert_link(&link).unwrap();
+
+        // Initially None
+        let fetched = db.get_link("link1").unwrap().unwrap();
+        assert_eq!(fetched.installed_hash, None);
+
+        // Update to a value
+        db.update_link_installed_hash("link1", Some("newhash")).unwrap();
+        let fetched = db.get_link("link1").unwrap().unwrap();
+        assert_eq!(fetched.installed_hash, Some("newhash".to_string()));
+
+        // Clear it back to None
+        db.update_link_installed_hash("link1", None).unwrap();
+        let fetched = db.get_link("link1").unwrap().unwrap();
+        assert_eq!(fetched.installed_hash, None);
     }
 }

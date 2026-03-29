@@ -111,6 +111,7 @@ pub fn file_install(
         project_id: None,              // caller fills this in
         link_type: link_type.as_str().to_string(),
         created_at: now,
+        installed_hash: None,
     })
 }
 
@@ -138,40 +139,22 @@ pub fn file_uninstall(link: &ResourceLink) -> Result<(), String> {
     Ok(())
 }
 
-/// Detect if a path is a symlink pointing to a registry or library location.
-/// Returns the effective scope and optional metadata with origin info.
-fn detect_symlink_origin(path: &Path, default_scope: &ResourceScope) -> (ResourceScope, Option<String>) {
-    // Check if this is a symlink
+/// Check if a resource is an installed symlink. If so, read the manifest to get source_id.
+fn detect_install_source(path: &Path) -> Option<String> {
     let is_symlink = path.symlink_metadata()
         .map(|m| m.file_type().is_symlink())
         .unwrap_or(false);
-
     if !is_symlink {
-        return (default_scope.clone(), None);
+        return None;
     }
-
-    // Resolve the symlink target
     if let Ok(target) = fs::read_link(path) {
         let target_str = target.to_string_lossy();
-
-        // Check if target is under a registry path
-        if target_str.contains(".claude-manager/registries/") {
-            return (
-                ResourceScope::Registry,
-                Some(format!(r#"{{"origin":"registry","symlink_target":"{}"}}"#, target_str)),
-            );
-        }
-
-        // Check if target is under the library path
-        if target_str.contains(".claude-manager/library/") {
-            return (
-                ResourceScope::Library,
-                Some(format!(r#"{{"origin":"library","symlink_target":"{}"}}"#, target_str)),
-            );
+        if target_str.contains(".claude-manager/installed/") {
+            return crate::install::read_manifest(&target)
+                .map(|m| m.source_id);
         }
     }
-
-    (default_scope.clone(), None)
+    None
 }
 
 /// Discover resources in a directory.
@@ -198,13 +181,8 @@ pub fn scan_file_resources(
         }
         ResourceScope::Project => base_path.join(".claude").join(type_dir),
         ResourceScope::Library => base_path.join(type_dir),
-        // Plugin and Registry scopes are not file-scanned by this helper.
-        ResourceScope::Plugin | ResourceScope::Registry => {
-            return Err(format!(
-                "scan_file_resources does not support scope: {}",
-                scope.as_str()
-            ));
-        }
+        // Plugin and Registry: base_path is the root containing skills/, rules/, etc.
+        ResourceScope::Plugin | ResourceScope::Registry => base_path.join(type_dir),
     };
 
     if !scan_dir.is_dir() {
@@ -220,16 +198,39 @@ pub fn scan_file_resources(
     for entry in entries.flatten() {
         let path = entry.path();
 
-        // Detect symlink origin: if the entry is a symlink pointing to a
-        // registry path, record the origin so the UI can show a badge.
-        let (effective_scope, metadata) = detect_symlink_origin(&path, scope);
+        // Detect install source: if the entry is a symlink pointing to
+        // an installed path, read the manifest to get the source resource ID.
+        let installed_from_id = detect_install_source(&path);
 
-        if is_directory {
-            // Skills: look for subdirectories containing SKILL.md
-            if !path.is_dir() {
-                continue;
-            }
-            if !path.join("SKILL.md").is_file() {
+        // Unified scan: both .md files and directories are valid resources.
+        // - .md files → name from file stem, source_path = file path
+        // - directories → name from dir name, source_path = dir path
+        //   (for skills, directories must contain SKILL.md)
+        if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("md") {
+            let name = path
+                .file_stem()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let source_path = path.to_string_lossy().to_string();
+            let content_hash = compute_file_hash(&source_path);
+            resources.push(Resource {
+                id: Uuid::new_v4().to_string(),
+                resource_type: resource_type.clone(),
+                name,
+                description: None,
+                scope: scope.clone(),
+                source_path,
+                content_hash,
+                metadata: None,
+                installed_from_id: installed_from_id.clone(),
+                created_at: now.clone(),
+                updated_at: now.clone(),
+                version: None,
+                is_draft: 1,
+            });
+        } else if path.is_dir() {
+            // For skills (is_directory=true), require SKILL.md inside
+            if is_directory && !path.join("SKILL.md").is_file() {
                 continue;
             }
             let name = path
@@ -243,38 +244,11 @@ pub fn scan_file_resources(
                 resource_type: resource_type.clone(),
                 name,
                 description: None,
-                scope: effective_scope.clone(),
+                scope: scope.clone(),
                 source_path,
                 content_hash,
-                metadata: metadata.clone(),
-                created_at: now.clone(),
-                updated_at: now.clone(),
-                version: None,
-                is_draft: 1,
-            });
-        } else {
-            // Agents / Rules / Commands: look for .md files
-            if !path.is_file() {
-                continue;
-            }
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            let name = path
-                .file_stem()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let source_path = path.to_string_lossy().to_string();
-            let content_hash = compute_file_hash(&source_path);
-            resources.push(Resource {
-                id: Uuid::new_v4().to_string(),
-                resource_type: resource_type.clone(),
-                name,
-                description: None,
-                scope: effective_scope.clone(),
-                source_path,
-                content_hash,
-                metadata: metadata.clone(),
+                metadata: None,
+                installed_from_id: installed_from_id.clone(),
                 created_at: now.clone(),
                 updated_at: now.clone(),
                 version: None,
@@ -443,6 +417,7 @@ mod tests {
             project_id: None,
             link_type: "copy".to_string(),
             created_at: Utc::now().to_rfc3339(),
+            installed_hash: None,
         }
     }
 
@@ -526,8 +501,11 @@ mod tests {
         // A directory without SKILL.md should be ignored.
         fs::create_dir_all(skills_dir.join("empty-dir")).unwrap();
 
-        // A plain file should be ignored.
-        fs::write(skills_dir.join("loose.md"), "ignored").unwrap();
+        // A .md file in skills/ should also be picked up (single-file skill)
+        fs::write(skills_dir.join("loose.md"), "# Loose skill").unwrap();
+
+        // A non-.md file should still be ignored
+        fs::write(skills_dir.join("notes.txt"), "ignored").unwrap();
 
         let resources = scan_file_resources(
             &ResourceScope::Project,
@@ -538,10 +516,14 @@ mod tests {
         )
         .expect("scan should succeed");
 
-        assert_eq!(resources.len(), 1);
-        assert_eq!(resources[0].name, "deploy");
-        assert_eq!(resources[0].resource_type, ResourceType::Skill);
-        assert!(resources[0].content_hash.is_some());
+        assert_eq!(resources.len(), 2);
+        let names: Vec<&str> = resources.iter().map(|r| r.name.as_str()).collect();
+        assert!(names.contains(&"deploy"));
+        assert!(names.contains(&"loose"));
+        for r in &resources {
+            assert_eq!(r.resource_type, ResourceType::Skill);
+            assert!(r.content_hash.is_some());
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
+import { fullSync } from '@/lib/tauri-api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { I18nProvider } from '@/i18n/provider';
 import { DashboardPageV2 } from '@/pages/DashboardPage_v2';
@@ -22,7 +22,7 @@ function AppContent() {
 
   useEffect(() => {
     // Fire-and-forget: trigger background sync on startup
-    invoke('full_sync').catch((err) => {
+    fullSync().catch((err) => {
       console.error('Background sync failed to start:', err);
     });
   }, []);

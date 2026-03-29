@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { navigateToResource } from '@/lib/navigation';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -65,11 +66,7 @@ export function GlobalSearch({ onSearch, results, query }: GlobalSearchProps) {
               className="flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-accent"
               onClick={() => {
                 setOpen(false);
-                const filePath = resource.source_path;
-                const extra = resource.resource_type === 'skill'
-                  ? `&resource_id=${resource.id}&type=skill&scope=${resource.scope === 'project' ? 'project' : 'library'}`
-                  : '';
-                navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
+                navigateToResource(navigate, resource);
               }}
             >
               <span className="mr-2 truncate">{resource.name}</span>

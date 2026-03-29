@@ -1,6 +1,6 @@
 use super::*;
 use super::file_based::{file_install, file_uninstall, resolve_file_target, scan_file_resources};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct SkillAdapter;
 
@@ -51,6 +51,16 @@ impl ResourceAdapter for SkillAdapter {
 
     fn scan(&self, scope: &ResourceScope, base_path: &Path) -> Result<Vec<Resource>, String> {
         scan_file_resources(scope, base_path, "skills", &ResourceType::Skill, true)
+    }
+
+    fn type_dir(&self) -> &'static str { "skills" }
+
+    fn resolve_file_path(&self, base_dir: &Path, name: &str) -> PathBuf {
+        base_dir.join("skills").join(name).join("SKILL.md")
+    }
+
+    fn source_path_from_file(&self, file_path: &Path) -> String {
+        file_path.parent().unwrap().to_string_lossy().to_string()
     }
 }
 

@@ -7,32 +7,26 @@ import { McpServerList } from '@/components/shared/McpServerList';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft } from 'lucide-react';
-import type { ResourceType, McpServer } from '@/types/v2';
-
-type TabValue = ResourceType | 'mcp';
+import type { ResourceType } from '@/types/v2';
 
 export function RegistryPluginDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { registryPlugins, pluginResources, loadPluginResources, pluginMcpServers, loadPluginMcpServers } = useRegistryStore();
+  const { registryPlugins, pluginResources, loadPluginResources } = useRegistryStore();
 
   const plugin = registryPlugins.find((p) => p.id === id);
   const resources = id ? pluginResources[id] || [] : [];
-  const mcpServers: McpServer[] = id ? pluginMcpServers[id] || [] : [];
 
   useEffect(() => {
     if (id && !pluginResources[id]) {
       loadPluginResources(id);
     }
-    if (id && !pluginMcpServers[id]) {
-      loadPluginMcpServers(id);
-    }
-  }, [id, pluginResources, loadPluginResources, pluginMcpServers, loadPluginMcpServers]);
+  }, [id, pluginResources, loadPluginResources]);
 
   const activeTab = useRegistryStore((s) => s.activeTab);
   const setActiveTab = useRegistryStore((s) => s.setActiveTab);
 
-  const filteredResources = activeTab === 'mcp' ? [] : resources.filter((r) => r.resource_type === activeTab);
+  const filteredResources = resources.filter((r) => r.resource_type === activeTab);
 
   if (!plugin) {
     return (
@@ -62,16 +56,10 @@ export function RegistryPluginDetailPage() {
         </div>
       </div>
 
-      <ResourceTypeTabs activeTab={activeTab} onTabChange={(v) => setActiveTab(v as TabValue)} includeMcp />
+      <ResourceTypeTabs activeTab={activeTab} onTabChange={(v) => setActiveTab(v as ResourceType)} />
 
-      {activeTab === 'mcp' ? (
-        mcpServers.length === 0 ? (
-          <div className="flex items-center justify-center py-12 text-muted-foreground">
-            No MCP servers found
-          </div>
-        ) : (
-          <McpServerList servers={mcpServers} />
-        )
+      {activeTab === 'mcp_server' ? (
+        <McpServerList resources={filteredResources} />
       ) : filteredResources.length === 0 ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
           No resources found

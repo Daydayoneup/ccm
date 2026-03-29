@@ -30,7 +30,7 @@ import {
   deletePath,
   renamePath,
 } from "@/lib/tauri-api";
-import type { FileEntry } from "@/types/v2";
+import type { FileEntry } from "@/lib/tauri-api";
 
 interface TreeNode extends FileEntry {
   children?: TreeNode[];

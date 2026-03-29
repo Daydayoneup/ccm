@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
+import { launchClaudeInTerminal } from '@/lib/tauri-api';
 import {
   LayoutDashboard,
   Globe,
@@ -44,9 +44,9 @@ export function Sidebar({ paletteEnabled }: SidebarProps) {
     .filter((p) => p.pinned === 1)
     .sort((a, b) => b.launch_count - a.launch_count);
 
-  const handleLaunch = async (projectId: string, projectPath: string) => {
+  const handleLaunch = async (_projectId: string, projectPath: string) => {
     try {
-      await invoke('launch_claude_in_terminal', { projectPath, projectId });
+      await launchClaudeInTerminal(projectPath);
     } catch (error) {
       console.error('Failed to launch shell:', error);
     }

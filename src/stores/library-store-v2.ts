@@ -1,6 +1,10 @@
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
-import type { Resource, ResourceLink, ResourceType, LinkType } from '@/types/v2';
+import {
+  listLibraryResourcesWithInstalls, createLibraryResource, deleteLibraryResource,
+  installToProject, deployToGlobal, listResourceLinks, checkLinkHealth,
+} from '@/lib/tauri-api';
+import { asyncAction } from '@/lib/store-utils';
+import type { LibraryResourceWithInstalls, Resource, ResourceLink, ResourceType, LinkType } from '@/types/v2';
 
 interface LinkHealthInfo {
   link_id: string;
@@ -10,12 +14,13 @@ interface LinkHealthInfo {
 }
 
 interface LibraryStore {
-  resources: Resource[];
+  resources: LibraryResourceWithInstalls[];
   links: ResourceLink[];
   linkHealth: LinkHealthInfo[];
   loading: boolean;
   error: string | null;
   activeTab: ResourceType;
+  installFilter: 'all' | 'installed';
 
   loadResources: (resourceType?: ResourceType) => Promise<void>;
   createResource: (resourceType: ResourceType, name: string, description: string, content: string) => Promise<Resource>;
@@ -25,9 +30,10 @@ interface LibraryStore {
   loadLinks: (resourceId: string) => Promise<void>;
   checkLinkHealth: () => Promise<void>;
   setActiveTab: (tab: ResourceType) => void;
+  setInstallFilter: (filter: 'all' | 'installed') => void;
   selectedSource: 'local' | string;
   setSelectedSource: (source: 'local' | string) => void;
-  getFilteredResources: () => Resource[];
+  getFilteredResources: () => LibraryResourceWithInstalls[];
 }
 
 export const useLibraryStore = create<LibraryStore>((set, get) => ({
@@ -38,28 +44,17 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   error: null,
   activeTab: 'skill',
   selectedSource: 'local',
+  installFilter: 'all',
 
   loadResources: async (resourceType?: ResourceType) => {
-    set({ loading: true, error: null });
-    try {
-      const resources = await invoke<Resource[]>('list_library_resources', {
-        resourceType: resourceType ?? null,
-      });
-      set({ resources, loading: false });
-    } catch (e) {
-      set({ error: String(e), loading: false });
-    }
+    const resources = await asyncAction(set, 'loading', () => listLibraryResourcesWithInstalls(resourceType));
+    if (resources) set({ resources });
   },
 
   createResource: async (resourceType: ResourceType, name: string, description: string, content: string) => {
     set({ loading: true, error: null });
     try {
-      const resource = await invoke<Resource>('create_library_resource', {
-        resourceType,
-        name,
-        description,
-        content,
-      });
+      const resource = await createLibraryResource(resourceType, name, description, content);
       await get().loadResources();
       return resource;
     } catch (e) {
@@ -69,57 +64,36 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   },
 
   deleteResource: async (id: string, deleteFromDisk = false) => {
-    set({ loading: true, error: null });
-    try {
-      await invoke<void>('delete_library_resource', { id, deleteFromDisk });
+    await asyncAction(set, 'loading', async () => {
+      await deleteLibraryResource(id, deleteFromDisk);
       await get().loadResources();
-    } catch (e) {
-      set({ error: String(e), loading: false });
-    }
+    });
   },
 
   installToProject: async (resourceId: string, projectId: string, linkType: LinkType) => {
-    set({ loading: true, error: null });
-    try {
-      await invoke<void>('install_to_project', { resourceId, projectId, linkType });
-      set({ loading: false });
-    } catch (e) {
-      set({ error: String(e), loading: false });
-    }
+    await asyncAction(set, 'loading', () => installToProject(resourceId, projectId, linkType));
   },
 
   deployToGlobal: async (resourceId: string, linkType: LinkType) => {
-    set({ loading: true, error: null });
-    try {
-      await invoke<void>('deploy_to_global', { resourceId, linkType });
-      set({ loading: false });
-    } catch (e) {
-      set({ error: String(e), loading: false });
-    }
+    await asyncAction(set, 'loading', () => deployToGlobal(resourceId, linkType));
   },
 
   loadLinks: async (resourceId: string) => {
-    set({ loading: true, error: null });
-    try {
-      const links = await invoke<ResourceLink[]>('list_resource_links', { resourceId });
-      set({ links, loading: false });
-    } catch (e) {
-      set({ error: String(e), loading: false });
-    }
+    const links = await asyncAction(set, 'loading', () => listResourceLinks(resourceId));
+    if (links) set({ links });
   },
 
   checkLinkHealth: async () => {
-    set({ loading: true, error: null });
-    try {
-      const linkHealth = await invoke<LinkHealthInfo[]>('check_link_health', {});
-      set({ linkHealth, loading: false });
-    } catch (e) {
-      set({ error: String(e), loading: false });
-    }
+    const linkHealth = await asyncAction(set, 'loading', checkLinkHealth);
+    if (linkHealth) set({ linkHealth });
   },
 
   setActiveTab: (tab: ResourceType) => {
     set({ activeTab: tab });
+  },
+
+  setInstallFilter: (filter: 'all' | 'installed') => {
+    set({ installFilter: filter });
   },
 
   setSelectedSource: (source: 'local' | string) => {
@@ -127,7 +101,11 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   },
 
   getFilteredResources: () => {
-    const { resources, activeTab } = get();
-    return resources.filter((r) => r.resource_type === activeTab);
+    const { resources, activeTab, installFilter } = get();
+    let filtered = resources.filter((r) => r.resource.resource_type === activeTab);
+    if (installFilter === 'installed') {
+      filtered = filtered.filter((r) => r.installations.length > 0);
+    }
+    return filtered;
   },
 }));

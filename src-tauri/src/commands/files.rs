@@ -12,6 +12,12 @@ pub struct FileEntry {
     pub size: u64,
 }
 
+/// Tauri command: Check if a path is a directory.
+#[tauri::command]
+pub fn path_is_directory(path: String) -> bool {
+    Path::new(&path).is_dir()
+}
+
 /// Tauri command: Read file contents as a string.
 /// If path is a directory containing SKILL.md (skill resource), reads that instead.
 #[tauri::command]

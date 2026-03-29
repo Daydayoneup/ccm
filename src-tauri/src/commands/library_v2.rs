@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
-use crate::adapters::{AdapterRegistry, LinkType, TargetScope, normalize_link_type};
+use crate::adapters::AdapterRegistry;
 use crate::db::Database;
 use crate::models::v2::{Resource, ResourceType, ResourceScope, ResourceLink};
-use crate::scanner;
 use std::path::Path;
 use std::fs;
 
@@ -35,6 +34,90 @@ pub fn list_library_resources(
     }
 }
 
+#[derive(serde::Serialize)]
+pub struct LibraryResourceWithLinks {
+    pub resource: Resource,
+    pub links: Vec<ResourceLink>,
+    pub has_update: bool,
+}
+
+/// List library resources enriched with their install links and update status.
+#[tauri::command]
+pub fn list_library_resources_with_links(
+    db: State<Database>,
+    resource_type: Option<String>,
+) -> Result<Vec<LibraryResourceWithLinks>, String> {
+    let resources = match resource_type {
+        Some(rt) => {
+            let rtype = ResourceType::from_str(&rt)
+                .ok_or_else(|| format!("Invalid resource type: {}", rt))?;
+            db.list_resources_by_scope_and_type(&ResourceScope::Library, &rtype)
+                .map_err(|e| e.to_string())?
+        }
+        None => {
+            db.list_resources_by_scope(&ResourceScope::Library)
+                .map_err(|e| e.to_string())?
+        }
+    };
+
+    let mut result = Vec::new();
+    for resource in resources {
+        let links = db.list_links_by_resource(&resource.id).unwrap_or_default();
+        let has_update = if links.is_empty() {
+            false
+        } else {
+            let installed_hash = links[0].installed_hash.as_deref();
+            let content_hash = resource.content_hash.as_deref();
+            match (content_hash, installed_hash) {
+                (Some(c), Some(i)) => c != i,
+                _ => false,
+            }
+        };
+        result.push(LibraryResourceWithLinks { resource, links, has_update });
+    }
+
+    Ok(result)
+}
+
+#[derive(serde::Serialize)]
+pub struct LibraryResourceWithInstalls {
+    pub resource: Resource,
+    pub installations: Vec<crate::install_service::InstallStatus>,
+    pub has_update: bool,
+}
+
+#[tauri::command]
+pub fn list_library_resources_with_installs(
+    db: State<Database>,
+    resource_type: Option<String>,
+) -> Result<Vec<LibraryResourceWithInstalls>, String> {
+    let resources = match resource_type {
+        Some(rt) => {
+            let rtype = ResourceType::from_str(&rt)
+                .ok_or_else(|| format!("Invalid resource type: {}", rt))?;
+            db.list_resources_by_scope_and_type(&ResourceScope::Library, &rtype)
+                .map_err(|e| e.to_string())?
+        }
+        None => {
+            db.list_resources_by_scope(&ResourceScope::Library)
+                .map_err(|e| e.to_string())?
+        }
+    };
+
+    let mut result = Vec::new();
+    for resource in resources {
+        let statuses = crate::install_service::query_install_status(&db, &resource.id)
+            .unwrap_or_default();
+        let has_update = statuses.iter().any(|s| s.has_update);
+        result.push(LibraryResourceWithInstalls {
+            resource,
+            installations: statuses,
+            has_update,
+        });
+    }
+    Ok(result)
+}
+
 /// Create a new library resource — writes file to ~/.claude-manager/library/<type>/ and inserts DB record
 #[tauri::command]
 pub fn create_library_resource(
@@ -45,80 +128,19 @@ pub fn create_library_resource(
     description: Option<String>,
     content: String,
 ) -> Result<Resource, String> {
-    let rtype = ResourceType::from_str(&resource_type)
-        .ok_or_else(|| format!("Invalid resource type: {}", resource_type))?;
-
-    // Validate content via adapter
-    let adapter = adapter_registry.get(&rtype)
-        .ok_or_else(|| format!("No adapter for resource type: {}", resource_type))?;
-    adapter.validate_content(&content)?;
-
     let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
     let library_base = home.join(".claude-manager").join("library");
 
-    // Determine file path based on resource type
-    let file_path = match rtype {
-        ResourceType::Skill => {
-            let skill_dir = library_base.join("skills").join(&name);
-            fs::create_dir_all(&skill_dir).map_err(|e| e.to_string())?;
-            skill_dir.join("SKILL.md")
-        }
-        ResourceType::Agent => {
-            let dir = library_base.join("agents");
-            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            dir.join(format!("{}.md", name))
-        }
-        ResourceType::Rule => {
-            let dir = library_base.join("rules");
-            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            dir.join(format!("{}.md", name))
-        }
-        ResourceType::Hook => {
-            let dir = library_base.join("hooks");
-            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            dir.join(format!("{}.json", name))
-        }
-        ResourceType::Command => {
-            let dir = library_base.join("commands");
-            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            dir.join(format!("{}.md", name))
-        }
-        ResourceType::McpServer => {
-            return Err("McpServer resources cannot be created via this command".to_string());
-        }
-    };
-
-    // Write file
-    fs::write(&file_path, &content).map_err(|e| e.to_string())?;
-
-    // For skills, the source_path should be the skill directory, not the SKILL.md file
-    let source_path = match rtype {
-        ResourceType::Skill => file_path.parent().unwrap().to_string_lossy().to_string(),
-        _ => file_path.to_string_lossy().to_string(),
-    };
-
-    // Compute hash
-    let hash = scanner::compute_file_hash(&source_path);
-
-    // Create resource record
-    let now = chrono::Utc::now().to_rfc3339();
-    let resource = Resource {
-        id: uuid::Uuid::new_v4().to_string(),
-        resource_type: rtype,
-        name: name.clone(),
+    super::resource_ops::create_resource_at(
+        &db,
+        &adapter_registry,
+        &resource_type,
+        &name,
         description,
-        scope: ResourceScope::Library,
-        source_path,
-        content_hash: hash,
-        metadata: None,
-        created_at: now.clone(),
-        updated_at: now,
-        version: None,
-        is_draft: 1,
-    };
-
-    db.insert_resource(&resource).map_err(|e| e.to_string())?;
-    Ok(resource)
+        &content,
+        &library_base,
+        ResourceScope::Library,
+    )
 }
 
 /// Delete a library resource — checks for links first, optionally removes file, always removes DB record
@@ -158,15 +180,17 @@ pub fn delete_library_resource(db: State<Database>, id: String, delete_from_disk
     Ok(())
 }
 
-/// Install a library resource to a project's .claude/<type>/ directory via adapter
+/// Install a library resource to a project's .claude/<type>/ directory
 #[tauri::command]
 pub fn install_to_project(
     db: State<Database>,
-    adapter_registry: State<'_, AdapterRegistry>,
+    adapter_registry: State<AdapterRegistry>,
     resource_id: String,
     project_id: String,
     link_type: String,
 ) -> Result<ResourceLink, String> {
+    let _ = link_type;
+
     let lib_resource = db.get_resource(&resource_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Resource not found: {}", resource_id))?;
@@ -179,35 +203,24 @@ pub fn install_to_project(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Project not found: {}", project_id))?;
 
-    let adapter = adapter_registry.get(&lib_resource.resource_type)
-        .ok_or_else(|| "No adapter for resource type".to_string())?;
+    let scope = crate::install::InstallScope::Project {
+        id: project_id,
+        path: project.path.clone(),
+    };
 
-    let requested_link_type = LinkType::from_str(&link_type)
-        .ok_or_else(|| "Invalid link type".to_string())?;
-    let effective_link_type = normalize_link_type(adapter, requested_link_type);
-
-    let target = adapter.resolve_target(
-        &TargetScope::Project,
-        &lib_resource.name,
-        Some(&project),
-    )?;
-
-    let mut link = adapter.install(&lib_resource, &target, &effective_link_type)?;
-    link.target_scope = "project".to_string();
-    link.project_id = Some(project_id.clone());
-
-    db.insert_link(&link).map_err(|e| e.to_string())?;
-    Ok(link)
+    super::resource_ops::install_resource_to(&db, &lib_resource, scope, &adapter_registry)
 }
 
-/// Deploy a library resource to the global ~/.claude/<type>/ directory via adapter
+/// Deploy a library resource to the global ~/.claude/<type>/ directory
 #[tauri::command]
 pub fn deploy_to_global(
     db: State<Database>,
-    adapter_registry: State<'_, AdapterRegistry>,
+    adapter_registry: State<AdapterRegistry>,
     resource_id: String,
     link_type: String,
 ) -> Result<ResourceLink, String> {
+    let _ = link_type;
+
     let lib_resource = db.get_resource(&resource_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Resource not found: {}", resource_id))?;
@@ -216,24 +229,9 @@ pub fn deploy_to_global(
         return Err("Resource is not a library resource".to_string());
     }
 
-    let adapter = adapter_registry.get(&lib_resource.resource_type)
-        .ok_or_else(|| "No adapter for resource type".to_string())?;
+    let scope = crate::install::InstallScope::Global;
 
-    let requested_link_type = LinkType::from_str(&link_type)
-        .ok_or_else(|| "Invalid link type".to_string())?;
-    let effective_link_type = normalize_link_type(adapter, requested_link_type);
-
-    let target = adapter.resolve_target(
-        &TargetScope::Global,
-        &lib_resource.name,
-        None,
-    )?;
-
-    let mut link = adapter.install(&lib_resource, &target, &effective_link_type)?;
-    link.target_scope = "global".to_string();
-
-    db.insert_link(&link).map_err(|e| e.to_string())?;
-    Ok(link)
+    super::resource_ops::install_resource_to(&db, &lib_resource, scope, &adapter_registry)
 }
 
 /// List all resource links for a given resource
@@ -320,14 +318,14 @@ pub fn fork_to_library(
 
     // Determine library target path
     let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
-    let type_dir = match resource.resource_type {
-        ResourceType::Skill => "skills",
-        ResourceType::Agent => "agents",
-        ResourceType::Rule => "rules",
-        ResourceType::Command => "commands",
-        ResourceType::Hook => "hooks",
-        _ => return Err("Unsupported resource type for fork".to_string()),
-    };
+    if resource.resource_type == ResourceType::McpServer {
+        return Err("Unsupported resource type for fork".to_string());
+    }
+    let adapter_registry = AdapterRegistry::new();
+    let type_dir = adapter_registry
+        .get(&resource.resource_type)
+        .map(|a| a.type_dir())
+        .ok_or_else(|| format!("No adapter for {:?}", resource.resource_type))?;
     let lib_path = home.join(".claude-manager").join("library").join(type_dir);
     fs::create_dir_all(&lib_path).map_err(|e| e.to_string())?;
 
@@ -372,6 +370,7 @@ pub fn fork_to_library(
         updated_at: now,
         version: None,
         is_draft: 1,
+            installed_from_id: None,
     };
 
     db.insert_resource(&new_resource).map_err(|e| e.to_string())?;
@@ -431,6 +430,7 @@ mod tests {
             updated_at: "2026-03-01T00:00:00Z".to_string(),
             version: None,
             is_draft: 1,
+            installed_from_id: None,
         }
     }
 
@@ -450,6 +450,7 @@ mod tests {
             updated_at: "2026-03-01T00:00:00Z".to_string(),
             version: None,
             is_draft: 1,
+            installed_from_id: None,
         };
         db.insert_resource(&r1).unwrap();
         db.insert_resource(&r2).unwrap();
@@ -507,6 +508,7 @@ mod tests {
             project_id: Some("proj1".to_string()),
             link_type: "symlink".to_string(),
             created_at: "2026-03-01T00:00:00Z".to_string(),
+            installed_hash: None,
         };
         db.insert_link(&link).unwrap();
 
@@ -538,6 +540,7 @@ mod tests {
             project_id: Some("proj1".to_string()),
             link_type: "symlink".to_string(),
             created_at: "2026-03-01T00:00:00Z".to_string(),
+            installed_hash: None,
         };
         let link2 = ResourceLink {
             id: "link2".to_string(),
@@ -548,6 +551,7 @@ mod tests {
             project_id: None,
             link_type: "copy".to_string(),
             created_at: "2026-03-01T00:00:00Z".to_string(),
+            installed_hash: None,
         };
         db.insert_link(&link1).unwrap();
         db.insert_link(&link2).unwrap();
@@ -573,6 +577,7 @@ mod tests {
             project_id: None,
             link_type: "copy".to_string(),
             created_at: "2026-03-01T00:00:00Z".to_string(),
+            installed_hash: None,
         };
         db.insert_link(&link).unwrap();
 
@@ -599,6 +604,7 @@ mod tests {
             project_id: None,
             link_type: "copy".to_string(),
             created_at: "2026-03-01T00:00:00Z".to_string(),
+            installed_hash: None,
         };
         db.insert_link(&link).unwrap();
 
@@ -629,6 +635,7 @@ mod tests {
             project_id: Some("proj1".to_string()),
             link_type: "symlink".to_string(),
             created_at: "2026-03-01T00:00:00Z".to_string(),
+            installed_hash: None,
         };
         let link2 = ResourceLink {
             id: "link2".to_string(),
@@ -639,6 +646,7 @@ mod tests {
             project_id: None,
             link_type: "copy".to_string(),
             created_at: "2026-03-01T00:00:00Z".to_string(),
+            installed_hash: None,
         };
         db.insert_link(&link1).unwrap();
         db.insert_link(&link2).unwrap();

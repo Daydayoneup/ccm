@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
+import { launchClaudeInTerminal, listProjectsRanked } from '@/lib/tauri-api';
 import { Terminal, Search, Pin, PinOff, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProjectStoreV2 } from '@/stores/project-store-v2';
@@ -28,7 +28,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     setSelectedIndex(0);
     setError(null);
     setLoading(true);
-    invoke<Project[]>('list_projects_ranked')
+    listProjectsRanked()
       .then(setProjects)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
@@ -61,10 +61,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const launchShell = useCallback(
     async (project: Project) => {
       try {
-        await invoke('launch_claude_in_terminal', {
-          projectPath: project.path,
-          projectId: project.id,
-        });
+        await launchClaudeInTerminal(project.path);
         onClose();
       } catch (e) {
         setError(String(e));
@@ -116,7 +113,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     async (e: React.MouseEvent, projectId: string) => {
       e.stopPropagation();
       await togglePin(projectId);
-      const updated = await invoke<Project[]>('list_projects_ranked');
+      const updated = await listProjectsRanked();
       setProjects(updated);
     },
     [togglePin]

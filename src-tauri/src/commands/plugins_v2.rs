@@ -1,5 +1,5 @@
 use tauri::State;
-use crate::adapters::file_based::copy_dir_recursive;
+use crate::adapters::{AdapterRegistry, file_based::copy_dir_recursive};
 use crate::db::Database;
 use crate::models::v2::{Plugin, Resource, ResourceType, ResourceScope};
 use crate::scanner;
@@ -60,6 +60,7 @@ pub fn scan_plugins(db: State<Database>) -> Result<Vec<Plugin>, String> {
                     updated_at: now.clone(),
                     version: None,
                     is_draft: 1,
+            installed_from_id: None,
                 };
                 let _ = db.insert_resource(&resource);
             }
@@ -91,6 +92,7 @@ pub fn scan_plugins(db: State<Database>) -> Result<Vec<Plugin>, String> {
                     updated_at: now.clone(),
                     version: None,
                     is_draft: 1,
+            installed_from_id: None,
                 };
                 let _ = db.insert_resource(&resource);
             }
@@ -149,14 +151,11 @@ pub fn extract_to_library(
     let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
     let library_base = home.join(".claude-manager").join("library");
 
-    let type_dir = match resource.resource_type {
-        ResourceType::Skill => "skills",
-        ResourceType::Agent => "agents",
-        ResourceType::Rule => "rules",
-        ResourceType::Hook => "hooks",
-        ResourceType::Command => "commands",
-        ResourceType::McpServer => "mcp_servers",
-    };
+    let adapter_registry = AdapterRegistry::new();
+    let type_dir = adapter_registry
+        .get(&resource.resource_type)
+        .map(|a| a.type_dir())
+        .ok_or_else(|| format!("No adapter for {:?}", resource.resource_type))?;
     let target_dir = library_base.join(type_dir);
     fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
 
@@ -189,6 +188,7 @@ pub fn extract_to_library(
         updated_at: now,
         version: None,
         is_draft: 1,
+            installed_from_id: None,
     };
 
     db.insert_resource(&library_resource).map_err(|e| e.to_string())?;
@@ -240,6 +240,7 @@ mod tests {
             updated_at: "2026-03-01T00:00:00Z".to_string(),
             version: None,
             is_draft: 1,
+            installed_from_id: None,
         }
     }
 
@@ -361,6 +362,7 @@ mod tests {
             updated_at: "2026-03-01T00:00:00Z".to_string(),
             version: None,
             is_draft: 1,
+            installed_from_id: None,
         };
         db.insert_resource(&resource).unwrap();
 

@@ -1,27 +1,16 @@
 import * as React from "react";
 import MDEditor from "@uiw/react-md-editor";
 import remarkFrontmatter from "remark-frontmatter";
-import { Loader2, Save, Upload, Undo2, History, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Loader2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
-import type { ResourceVersion } from "@/types/v2";
 import {
   readFile,
   writeFile,
   saveSkillRawContent,
-  publishResourceVersion,
-  listResourceVersions,
-  rollbackResourceVersion,
-  getResource,
+  pathIsDirectory,
 } from "@/lib/tauri-api";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { PublishVersionDialog } from "./PublishVersionDialog";
+import { EditorToolbar } from "./EditorToolbar";
 import {
   remarkFrontmatterCard,
   skillPreviewCode,
@@ -61,11 +50,15 @@ const previewComponents = { code: skillPreviewCode };
 
 export function SkillEditor({ filePath, resourceId, scope }: SkillEditorProps) {
   const isReadOnly = scope === "registry";
-  const skillDir = filePath;
-  const skillMdPath = `${skillDir}/SKILL.md`;
 
+  // Whether filePath is a single file (e.g., existing-skill.md) or directory (e.g., my-skill/)
+  const [isSingleFile, setIsSingleFile] = React.useState<boolean | null>(null);
+
+  // Derived paths — computed once isSingleFile is known
+  const skillDir = isSingleFile ? filePath.substring(0, filePath.lastIndexOf("/")) : filePath;
+  const skillMdPath = isSingleFile ? filePath : `${filePath}/SKILL.md`;
   // Active file state
-  const [activeFile, setActiveFile] = React.useState(skillMdPath);
+  const [activeFile, setActiveFile] = React.useState(filePath);
   const [activeFileName, setActiveFileName] = React.useState("SKILL.md");
 
   // File content state
@@ -78,16 +71,21 @@ export function SkillEditor({ filePath, resourceId, scope }: SkillEditorProps) {
   // File tree collapsed state
   const [treeCollapsed, setTreeCollapsed] = React.useState(false);
 
-  // Version state (only for SKILL.md)
-  const [versions, setVersions] = React.useState<ResourceVersion[]>([]);
-  const [currentVersion, setCurrentVersion] = React.useState<string | null>(null);
-  const [isDraft, setIsDraft] = React.useState(false);
-  const [publishOpen, setPublishOpen] = React.useState(false);
-  const [versionsOpen, setVersionsOpen] = React.useState(false);
+  // Detect file vs directory on mount
+  React.useEffect(() => {
+    pathIsDirectory(filePath).then((isDir) => {
+      const single = !isDir;
+      setIsSingleFile(single);
+      const mdPath = single ? filePath : `${filePath}/SKILL.md`;
+      const fileName = single ? (filePath.split("/").pop() ?? "SKILL.md") : "SKILL.md";
+      setActiveFile(mdPath);
+      setActiveFileName(fileName);
+    });
+  }, [filePath]);
 
   const hasChanges = content !== originalContent;
   const fileCategory = getFileCategory(activeFileName);
-  const isSkillMd = activeFileName === "SKILL.md";
+  const isSkillMd = isSingleFile === true || activeFileName === "SKILL.md";
 
   // Load active file
   const loadFile = React.useCallback(async (path: string, name: string) => {
@@ -110,29 +108,11 @@ export function SkillEditor({ filePath, resourceId, scope }: SkillEditorProps) {
     }
   }, [skillMdPath]);
 
-  // Load versions on mount
+  // Load initial file (wait for isSingleFile detection)
   React.useEffect(() => {
-    (async () => {
-      try {
-        const [versionList, resource] = await Promise.all([
-          listResourceVersions(resourceId),
-          getResource(resourceId),
-        ]);
-        setVersions(versionList);
-        if (resource) {
-          setIsDraft(resource.is_draft === 1);
-          setCurrentVersion(resource.version);
-        }
-      } catch {
-        // ignore version loading errors
-      }
-    })();
-  }, [resourceId]);
-
-  // Load initial file
-  React.useEffect(() => {
+    if (isSingleFile === null) return;
     loadFile(activeFile, activeFileName);
-  }, [activeFile, activeFileName, loadFile]);
+  }, [activeFile, activeFileName, loadFile, isSingleFile]);
 
   const handleSelectFile = (path: string, name: string) => {
     if (path === activeFile) return;
@@ -147,7 +127,6 @@ export function SkillEditor({ filePath, resourceId, scope }: SkillEditorProps) {
     try {
       if (isSkillMd) {
         await saveSkillRawContent(resourceId, activeFile, content);
-        setIsDraft(true);
       } else {
         await writeFile(activeFile, content);
       }
@@ -161,55 +140,8 @@ export function SkillEditor({ filePath, resourceId, scope }: SkillEditorProps) {
 
   const handleDiscard = () => setContent(originalContent);
 
-  const handlePublish = async (version: string, changelog: string) => {
-    if (hasChanges) {
-      await saveSkillRawContent(resourceId, skillMdPath, content);
-      setOriginalContent(content);
-    }
-    await publishResourceVersion(resourceId, version, changelog);
-    const updated = await listResourceVersions(resourceId);
-    setVersions(updated);
-    setCurrentVersion(version);
-    setIsDraft(false);
-  };
-
-  const handleRollback = async (version: string) => {
-    await rollbackResourceVersion(resourceId, version);
-    setVersionsOpen(false);
-    await loadFile(activeFile, activeFileName);
-    const [versionList, resource] = await Promise.all([
-      listResourceVersions(resourceId),
-      getResource(resourceId),
-    ]);
-    setVersions(versionList);
-    if (resource) {
-      setIsDraft(resource.is_draft === 1);
-      setCurrentVersion(resource.version);
-    }
-  };
-
   const handleForked = (newResourceId: string, newSourcePath: string) => {
     window.location.href = `/editor?file=${encodeURIComponent(newSourcePath)}&resource_id=${newResourceId}&type=skill&scope=library`;
-  };
-
-  const suggestNextVersion = (): string => {
-    if (versions.length === 0) return "1.0.0";
-    const latest = versions[0].version;
-    const parts = latest.split(".").map(Number);
-    if (parts.length === 3 && parts.every((p) => !isNaN(p))) {
-      parts[2] += 1;
-      return parts.join(".");
-    }
-    return "1.0.0";
-  };
-
-  const statusBadge = () => {
-    const versionSuffix = currentVersion ? ` v${currentVersion}` : "";
-    if (currentVersion === null)
-      return <Badge variant="secondary" className="border-muted-foreground/20 bg-muted/60 text-muted-foreground">Unpublished</Badge>;
-    if (isDraft)
-      return <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-600">Draft{versionSuffix}</Badge>;
-    return <Badge className="border-emerald-500/30 bg-emerald-500/15 text-emerald-600">Published{versionSuffix}</Badge>;
   };
 
   const renderEditor = () => {
@@ -286,74 +218,24 @@ export function SkillEditor({ filePath, resourceId, scope }: SkillEditorProps) {
 
       {/* Action bar — only when editable */}
       {!isReadOnly && (
-        <div className="flex items-center gap-3 border-b bg-muted/10 px-4 py-1.5">
-          {isSkillMd && statusBadge()}
-          <span className="text-xs text-muted-foreground truncate">{activeFileName}</span>
-          {hasChanges && (
-            <div className="flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-primary animate-pulse" />
-              <span className="text-[11px] font-medium text-primary">Unsaved</span>
-            </div>
-          )}
-          <div className="ml-auto flex items-center gap-1.5">
-            {isSkillMd && (
-              <Popover open={versionsOpen} onOpenChange={setVersionsOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-7 gap-1 rounded-md text-xs">
-                    <History className="size-3" />
-                    Versions ({versions.length})
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-80 p-0">
-                  {versions.length === 0 ? (
-                    <p className="p-4 text-sm text-muted-foreground">No versions published yet.</p>
-                  ) : (
-                    <div className="max-h-60 divide-y overflow-y-auto">
-                      {versions.map((v) => {
-                        const isCurrent = v.version === currentVersion;
-                        const date = new Date(v.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-                        return (
-                          <div key={v.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
-                            <div className="flex min-w-0 flex-col gap-0.5">
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-sm font-medium">v{v.version}</span>
-                                {isCurrent && <Badge variant="secondary" className="text-[10px] h-4">current</Badge>}
-                                <span className="text-xs text-muted-foreground">{date}</span>
-                              </div>
-                              {v.changelog && <p className="max-w-[220px] truncate text-xs text-muted-foreground">{v.changelog}</p>}
-                            </div>
-                            {!isCurrent && (
-                              <Button variant="outline" size="sm" className="h-6 shrink-0 text-[11px]" onClick={() => handleRollback(v.version)}>
-                                Rollback
-                              </Button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </PopoverContent>
-              </Popover>
-            )}
-            <Button variant="ghost" size="sm" className="h-7 gap-1 rounded-md text-xs text-muted-foreground hover:text-foreground" onClick={handleDiscard} disabled={!hasChanges}>
-              <Undo2 className="size-3" /> Discard
-            </Button>
-            <Button size="sm" variant="outline" className="h-7 gap-1 rounded-md text-xs" onClick={handleSave} disabled={saving || !hasChanges}>
-              {saving ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />} Save
-            </Button>
-            {isSkillMd && (
-              <Button size="sm" className="h-7 gap-1 rounded-md text-xs" onClick={() => setPublishOpen(true)} disabled={saving}>
-                <Upload className="size-3" /> Publish
-              </Button>
-            )}
-          </div>
-        </div>
+        <EditorToolbar
+          resourceId={resourceId}
+          skillMdPath={skillMdPath}
+          activeFileName={activeFileName}
+          hasChanges={hasChanges}
+          saving={saving}
+          content={content}
+          isSkillMd={isSkillMd}
+          onSave={handleSave}
+          onDiscard={handleDiscard}
+          onVersionChanged={() => loadFile(activeFile, activeFileName)}
+        />
       )}
 
       {/* Two-panel layout */}
       <div className="flex min-h-0 flex-1">
-        {/* File tree sidebar */}
-        {treeCollapsed ? (
+        {/* File tree sidebar — hidden for single-file skills */}
+        {isSingleFile ? null : treeCollapsed ? (
           <div className="flex shrink-0 flex-col items-center border-r bg-muted/5 px-1 py-2">
             <button
               onClick={() => setTreeCollapsed(false)}
@@ -396,16 +278,6 @@ export function SkillEditor({ filePath, resourceId, scope }: SkillEditorProps) {
         {isReadOnly && <span className="text-amber-600">只读</span>}
       </div>
 
-      {/* Publish Dialog */}
-      {!isReadOnly && (
-        <PublishVersionDialog
-          open={publishOpen}
-          onOpenChange={setPublishOpen}
-          existingVersions={versions.map((v) => v.version)}
-          suggestedVersion={suggestNextVersion()}
-          onPublish={handlePublish}
-        />
-      )}
     </div>
   );
 }

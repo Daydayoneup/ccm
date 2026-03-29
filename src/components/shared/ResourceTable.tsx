@@ -1,17 +1,27 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { navigateToResource } from '@/lib/navigation';
 import { Archive, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScopeBadge } from '@/lib/scope-utils';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import { BackupConfirmDialog } from './BackupConfirmDialog';
 import type { Resource } from '@/types/v2';
 import { useI18n } from '@/i18n/provider';
 
 interface ResourceTableProps {
   resources: Resource[];
   onDelete?: (id: string, deleteFromDisk: boolean) => void;
-  onBackup?: (id: string) => void;
+  onBackup?: (id: string, replaceWithLink: boolean) => void;
   showScope?: boolean;
+}
+
+/** Determine display scope: if resource was installed from library, show 'library' instead of raw scope */
+function getDisplayScope(resource: Resource): string {
+  if (resource.installed_from_id) {
+    return 'library';
+  }
+  return resource.scope;
 }
 
 const borderClasses: Record<string, string> = {
@@ -27,6 +37,7 @@ export function ResourceTable({ resources, onDelete, onBackup, showScope }: Reso
   const { t } = useI18n();
   const navigate = useNavigate();
   const [pendingDelete, setPendingDelete] = useState<Resource | null>(null);
+  const [pendingBackup, setPendingBackup] = useState<Resource | null>(null);
 
   if (resources.length === 0) {
     return (
@@ -44,20 +55,14 @@ export function ResourceTable({ resources, onDelete, onBackup, showScope }: Reso
             <div
               key={resource.id}
               className={`card-glow group cursor-pointer rounded-md border bg-card/90 p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_50px_rgba(15,23,42,0.10)] ${borderClasses[resource.resource_type] || ''}`}
-              onClick={() => {
-                const filePath = resource.source_path;
-                const extra = resource.resource_type === 'skill'
-                  ? `&resource_id=${resource.id}&type=skill&scope=${resource.scope === 'project' ? 'project' : 'library'}`
-                  : '';
-                navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
-              }}
+              onClick={() => navigateToResource(navigate, resource)}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="truncate text-sm font-semibold">{resource.name}</h3>
-                    {(showScope || resource.scope !== 'project') && (
-                      <ScopeBadge scope={resource.scope} className="shrink-0" />
+                    {(showScope || resource.scope !== 'project' || resource.installed_from_id) && (
+                      <ScopeBadge scope={getDisplayScope(resource)} className="shrink-0" />
                     )}
                   </div>
                   <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
@@ -74,7 +79,7 @@ export function ResourceTable({ resources, onDelete, onBackup, showScope }: Reso
                     variant="ghost"
                     size="icon-sm"
                     className="text-muted-foreground hover:text-primary"
-                    onClick={(e) => { e.stopPropagation(); onBackup(resource.id); }}
+                    onClick={(e) => { e.stopPropagation(); setPendingBackup(resource); }}
                     title={t('resources.backupToLibrary')}
                   >
                     <Archive className="size-3.5" />
@@ -109,6 +114,25 @@ export function ResourceTable({ resources, onDelete, onBackup, showScope }: Reso
           title={t('dialogs.deleteResourceTitle')}
           name={pendingDelete?.name ?? ''}
           path={pendingDelete?.source_path ?? ''}
+        />
+      )}
+      {onBackup && (
+        <BackupConfirmDialog
+          open={!!pendingBackup}
+          onClose={() => setPendingBackup(null)}
+          onConfirm={async (replaceWithLink) => {
+            if (pendingBackup) {
+              try {
+                await onBackup(pendingBackup.id, replaceWithLink);
+              } catch (e) {
+                console.error('Backup failed:', e);
+                alert(String(e));
+              }
+              setPendingBackup(null);
+            }
+          }}
+          name={pendingBackup?.name ?? ''}
+          path={pendingBackup?.source_path ?? ''}
         />
       )}
     </>

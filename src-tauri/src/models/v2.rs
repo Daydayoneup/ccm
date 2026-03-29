@@ -83,6 +83,7 @@ pub struct Resource {
     pub updated_at: String,
     pub version: Option<String>,
     pub is_draft: i32,
+    pub installed_from_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,20 +119,6 @@ pub struct Plugin {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McpServer {
-    pub id: String,
-    pub name: String,
-    pub project_id: Option<String>,
-    pub server_type: Option<String>,
-    pub command: Option<String>,
-    pub args: Option<String>,
-    pub url: Option<String>,
-    pub env: Option<String>,
-    pub source_path: String,
-    pub registry_plugin_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceLink {
     pub id: String,
     pub resource_id: String,
@@ -141,6 +128,7 @@ pub struct ResourceLink {
     pub project_id: Option<String>,
     pub link_type: String,
     pub created_at: String,
+    pub installed_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

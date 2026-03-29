@@ -2,7 +2,7 @@ use super::*;
 use super::config_based::*;
 use crate::scanner::compute_content_hash;
 use chrono::Utc;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 pub struct McpServerAdapter;
@@ -60,13 +60,28 @@ impl ResourceAdapter for McpServerAdapter {
             .strip_prefix("mcpServers.")
             .ok_or_else(|| format!("Invalid key_path format: {}", key_path))?;
 
-        // Parse the metadata as JSON fragment
-        let metadata_str = resource
-            .metadata
-            .as_deref()
-            .ok_or_else(|| "Resource metadata is required for McpServer install".to_string())?;
+        // Determine the server config content.
+        // Library/Registry MCP resources have a dedicated source file (mcp_servers/<name>.json)
+        // containing only this server's config. Read from file to get the latest content,
+        // since DB metadata may be stale (only updated by sync).
+        // Global/Project MCP resources have source_path pointing to a shared config file
+        // (.claude.json / .mcp.json), so we use DB metadata which contains just this entry.
+        let source_path = Path::new(&resource.source_path);
+        let is_dedicated_file = source_path.extension().and_then(|e| e.to_str()) == Some("json")
+            && !source_path.file_name().map(|f| f.to_string_lossy().starts_with('.')).unwrap_or(false);
 
-        let server_value: serde_json::Value = serde_json::from_str(metadata_str)
+        let metadata_str = if is_dedicated_file && source_path.exists() {
+            std::fs::read_to_string(source_path)
+                .map_err(|e| format!("Failed to read source file {}: {}", resource.source_path, e))?
+        } else {
+            resource
+                .metadata
+                .as_deref()
+                .ok_or_else(|| "Resource metadata is required for McpServer install".to_string())?
+                .to_string()
+        };
+
+        let server_value: serde_json::Value = serde_json::from_str(&metadata_str)
             .map_err(|e| format!("Failed to parse resource metadata as JSON: {}", e))?;
 
         // Read (or create) the config file
@@ -88,6 +103,7 @@ impl ResourceAdapter for McpServerAdapter {
             project_id: None, // caller fills this in
             link_type: LinkType::ConfigMerge.as_str().to_string(),
             created_at: now,
+            installed_hash: None,
         })
     }
 
@@ -131,6 +147,16 @@ impl ResourceAdapter for McpServerAdapter {
         Ok(())
     }
 
+    fn type_dir(&self) -> &'static str { "mcp_servers" }
+
+    fn resolve_file_path(&self, base_dir: &Path, name: &str) -> PathBuf {
+        base_dir.join("mcp_servers").join(format!("{}.json", name))
+    }
+
+    fn metadata_from_content(&self, content: &str) -> Option<String> {
+        Some(content.to_string())
+    }
+
     fn scan(&self, scope: &ResourceScope, base_path: &Path) -> Result<Vec<Resource>, String> {
         let config_path = match scope {
             ResourceScope::Global => {
@@ -139,6 +165,44 @@ impl ResourceAdapter for McpServerAdapter {
                 home.join(".claude.json")
             }
             ResourceScope::Project => base_path.join(".mcp.json"),
+            ResourceScope::Library => {
+                let mcp_dir = base_path.join("mcp_servers");
+                if !mcp_dir.is_dir() {
+                    return Ok(Vec::new());
+                }
+                let entries = std::fs::read_dir(&mcp_dir)
+                    .map_err(|e| format!("Failed to read mcp_servers dir: {}", e))?;
+                let now = Utc::now().to_rfc3339();
+                let mut resources = Vec::new();
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                        continue;
+                    }
+                    let name = path.file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let source_path = path.to_string_lossy().to_string();
+                    let metadata_str = std::fs::read_to_string(&path).unwrap_or_default();
+                    let content_hash = compute_content_hash(&metadata_str);
+                    resources.push(Resource {
+                        id: Uuid::new_v4().to_string(),
+                        resource_type: ResourceType::McpServer,
+                        name,
+                        description: None,
+                        scope: ResourceScope::Library,
+                        source_path,
+                        content_hash: Some(content_hash),
+                        metadata: Some(metadata_str),
+                        created_at: now.clone(),
+                        updated_at: now.clone(),
+                        version: None,
+                        is_draft: 1,
+            installed_from_id: None,
+                    });
+                }
+                return Ok(resources);
+            }
             other => {
                 return Err(format!(
                     "McpServerAdapter.scan does not support scope: {}",
@@ -190,6 +254,7 @@ impl ResourceAdapter for McpServerAdapter {
                 updated_at: now.clone(),
                 version: None,
                 is_draft: 1,
+            installed_from_id: None,
             });
         }
 
@@ -230,6 +295,7 @@ mod tests {
             updated_at: Utc::now().to_rfc3339(),
             version: None,
             is_draft: 1,
+            installed_from_id: None,
         }
     }
 
@@ -348,6 +414,7 @@ mod tests {
             project_id: None,
             link_type: "config_merge".to_string(),
             created_at: Utc::now().to_rfc3339(),
+            installed_hash: None,
         };
 
         adapter.uninstall(&link).unwrap();
@@ -493,6 +560,40 @@ mod tests {
             .scan(&ResourceScope::Project, tmp.path())
             .expect("malformed JSON should return empty vec, not error");
 
+        assert!(resources.is_empty());
+    }
+
+    #[test]
+    fn test_scan_library() {
+        let tmp = TempDir::new().unwrap();
+        let mcp_dir = tmp.path().join("mcp_servers");
+        fs::create_dir_all(&mcp_dir).unwrap();
+        fs::write(
+            mcp_dir.join("my-server.json"),
+            r#"{"command":"node","args":["server.js"]}"#,
+        ).unwrap();
+
+        let adapter = McpServerAdapter;
+        let resources = adapter
+            .scan(&ResourceScope::Library, tmp.path())
+            .expect("scan should succeed");
+
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0].name, "my-server");
+        assert_eq!(resources[0].scope, ResourceScope::Library);
+        assert!(resources[0].metadata.is_some());
+        let meta = resources[0].metadata.as_ref().unwrap();
+        assert!(meta.contains("node"));
+    }
+
+    #[test]
+    fn test_scan_library_empty() {
+        let tmp = TempDir::new().unwrap();
+        // No mcp_servers dir at all
+        let adapter = McpServerAdapter;
+        let resources = adapter
+            .scan(&ResourceScope::Library, tmp.path())
+            .expect("scan should succeed");
         assert!(resources.is_empty());
     }
 }

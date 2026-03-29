@@ -3,12 +3,14 @@ use rusqlite::params;
 use crate::db::Database;
 use crate::models::v2::{Resource, ResourceScope, ResourceType};
 
+const RESOURCE_COLUMNS: &str = "id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft, installed_from_id";
+
 impl Database {
     pub fn insert_resource(&self, resource: &Resource) -> rusqlite::Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO resources (id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT OR IGNORE INTO resources (id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft, installed_from_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 resource.id,
                 resource.resource_type.as_str(),
@@ -22,6 +24,7 @@ impl Database {
                 resource.updated_at,
                 resource.version,
                 resource.is_draft,
+                resource.installed_from_id,
             ],
         )?;
         Ok(())
@@ -30,8 +33,7 @@ impl Database {
     pub fn get_resource(&self, id: &str) -> rusqlite::Result<Option<Resource>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
-             FROM resources WHERE id = ?1",
+            &format!("SELECT {} FROM resources WHERE id = ?1", RESOURCE_COLUMNS)
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
             Self::row_to_resource(row)
@@ -45,8 +47,7 @@ impl Database {
     pub fn list_resources_by_scope(&self, scope: &ResourceScope) -> rusqlite::Result<Vec<Resource>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
-             FROM resources WHERE scope = ?1",
+            &format!("SELECT {} FROM resources WHERE scope = ?1", RESOURCE_COLUMNS)
         )?;
         let rows = stmt.query_map(params![scope.as_str()], |row| {
             Self::row_to_resource(row)
@@ -61,8 +62,7 @@ impl Database {
     ) -> rusqlite::Result<Vec<Resource>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
-             FROM resources WHERE scope = ?1 AND resource_type = ?2",
+            &format!("SELECT {} FROM resources WHERE scope = ?1 AND resource_type = ?2", RESOURCE_COLUMNS)
         )?;
         let rows = stmt.query_map(params![scope.as_str(), resource_type.as_str()], |row| {
             Self::row_to_resource(row)
@@ -73,7 +73,7 @@ impl Database {
     pub fn update_resource(&self, resource: &Resource) -> rusqlite::Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE resources SET resource_type = ?1, name = ?2, description = ?3, content_hash = ?4, metadata = ?5, updated_at = ?6, source_path = ?7, scope = ?8, version = ?9, is_draft = ?10 WHERE id = ?11",
+            "UPDATE resources SET resource_type = ?1, name = ?2, description = ?3, content_hash = ?4, metadata = ?5, updated_at = ?6, source_path = ?7, scope = ?8, version = ?9, is_draft = ?10, installed_from_id = ?11 WHERE id = ?12",
             params![
                 resource.resource_type.as_str(),
                 resource.name,
@@ -85,6 +85,7 @@ impl Database {
                 resource.scope.as_str(),
                 resource.version,
                 resource.is_draft,
+                resource.installed_from_id,
                 resource.id,
             ],
         )?;
@@ -97,11 +98,34 @@ impl Database {
         Ok(())
     }
 
+    /// Delete all registry-scoped resources whose source_path starts with the given prefix.
+    /// This catches orphaned resources that may not be linked to any current registry_plugin.
+    pub fn delete_registry_resources_by_path_prefix(&self, path_prefix: &str) -> rusqlite::Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let pattern = format!("{}%", path_prefix);
+        conn.execute(
+            "DELETE FROM resources WHERE scope = 'registry' AND source_path LIKE ?1",
+            params![pattern],
+        )
+    }
+
+    /// List all registry-scoped resources whose source_path starts with the given prefix.
+    pub fn list_registry_resources_by_path_prefix(&self, path_prefix: &str) -> rusqlite::Result<Vec<Resource>> {
+        let conn = self.conn.lock().unwrap();
+        let pattern = format!("{}%", path_prefix);
+        let mut stmt = conn.prepare(
+            &format!("SELECT {} FROM resources WHERE scope = 'registry' AND source_path LIKE ?1", RESOURCE_COLUMNS)
+        )?;
+        let rows = stmt.query_map(params![pattern], |row| {
+            Self::row_to_resource(row)
+        })?;
+        rows.collect()
+    }
+
     pub fn get_resource_by_path(&self, source_path: &str) -> rusqlite::Result<Option<Resource>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
-             FROM resources WHERE source_path = ?1",
+            &format!("SELECT {} FROM resources WHERE source_path = ?1", RESOURCE_COLUMNS)
         )?;
         let mut rows = stmt.query_map(params![source_path], |row| {
             Self::row_to_resource(row)
@@ -110,6 +134,35 @@ impl Database {
             Some(result) => Ok(Some(result?)),
             None => Ok(None),
         }
+    }
+
+    /// List Registry/Library resources whose source_path starts with the given prefix.
+    /// Used to find resources installed into ~/.claude/ via symlink from registry or library.
+    pub fn list_managed_resources_by_path_prefix(
+        &self,
+        path_prefix: &str,
+        resource_type: Option<&ResourceType>,
+    ) -> rusqlite::Result<Vec<Resource>> {
+        let conn = self.conn.lock().unwrap();
+        let prefix_pattern = format!("{}%", path_prefix);
+        let resources = if let Some(rt) = resource_type {
+            let mut stmt = conn.prepare(
+                &format!("SELECT {} FROM resources WHERE source_path LIKE ?1 AND scope IN ('registry', 'library') AND resource_type = ?2", RESOURCE_COLUMNS)
+            )?;
+            let rows = stmt.query_map(params![prefix_pattern, rt.as_str()], |row| {
+                Self::row_to_resource(row)
+            })?;
+            rows.collect()
+        } else {
+            let mut stmt = conn.prepare(
+                &format!("SELECT {} FROM resources WHERE source_path LIKE ?1 AND scope IN ('registry', 'library')", RESOURCE_COLUMNS)
+            )?;
+            let rows = stmt.query_map(params![prefix_pattern], |row| {
+                Self::row_to_resource(row)
+            })?;
+            rows.collect()
+        };
+        resources
     }
 
     pub fn count_resources_by_scope(&self, scope: &ResourceScope) -> rusqlite::Result<i64> {
@@ -124,8 +177,7 @@ impl Database {
     pub fn list_recent_resources(&self, limit: usize) -> rusqlite::Result<Vec<Resource>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
-             FROM resources ORDER BY updated_at DESC LIMIT ?1",
+            &format!("SELECT {} FROM resources ORDER BY updated_at DESC LIMIT ?1", RESOURCE_COLUMNS)
         )?;
         let rows = stmt.query_map(params![limit as i64], |row| {
             Self::row_to_resource(row)
@@ -137,8 +189,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let pattern = format!("%{}%", query);
         let mut stmt = conn.prepare(
-            "SELECT id, resource_type, name, description, scope, source_path, content_hash, metadata, created_at, updated_at, version, is_draft
-             FROM resources WHERE name LIKE ?1 ORDER BY updated_at DESC LIMIT 50",
+            &format!("SELECT {} FROM resources WHERE name LIKE ?1 ORDER BY updated_at DESC LIMIT 50", RESOURCE_COLUMNS)
         )?;
         let rows = stmt.query_map(params![pattern], |row| {
             Self::row_to_resource(row)
@@ -162,6 +213,7 @@ impl Database {
             updated_at: row.get(9)?,
             version: row.get(10)?,
             is_draft: row.get::<_, Option<i32>>(11)?.unwrap_or(1),
+            installed_from_id: row.get(12)?,
         })
     }
 }
@@ -185,6 +237,7 @@ mod tests {
             updated_at: "2026-03-01T00:00:00Z".to_string(),
             version: None,
             is_draft: 1,
+            installed_from_id: None,
         }
     }
 

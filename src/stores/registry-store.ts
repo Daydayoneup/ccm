@@ -1,7 +1,15 @@
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
-import type { Registry, Resource, ResourceType, RegistryPlugin, McpServer, ResourceLink } from '@/types/v2';
-import { listRegistryPlugins, getRegistryPluginResources, getRegistryPluginMcpServers, installPluginToProject, installPluginToGlobal, installResourceToProject as apiInstallResourceToProject, installResourceToGlobal as apiInstallResourceToGlobal, uninstallResource as apiUninstallResource, getPluginResourcesInstallStatus } from '@/lib/tauri-api';
+import type { Registry, Resource, ResourceType, RegistryPlugin, ResourceLink } from '@/types/v2';
+import {
+  listRegistries, addRegistry as apiAddRegistry, removeRegistry as apiRemoveRegistry,
+  syncRegistry as apiSyncRegistry, syncAllRegistries, checkRegistryUpdates,
+  listRegistryResources, publishToRegistry as apiPublishToRegistry, pushRegistry as apiPushRegistry,
+  listRegistryPlugins, getRegistryPluginResources, installPluginToProject, installPluginToGlobal,
+  installResourceToProject as apiInstallResourceToProject, installResourceToGlobal as apiInstallResourceToGlobal,
+  uninstallResource as apiUninstallResource, getPluginResourcesInstallStatus,
+  updateInstalledResource as apiUpdateInstalledResource, retainAsLibrary as apiRetainAsLibrary,
+} from '@/lib/tauri-api';
+import { asyncAction } from '@/lib/store-utils';
 
 interface RegistryStore {
   registries: Registry[];
@@ -10,7 +18,7 @@ interface RegistryStore {
   loading: boolean;
   syncing: boolean;
   error: string | null;
-  activeTab: ResourceType | 'mcp';
+  activeTab: ResourceType;
 
   loadRegistries: () => Promise<void>;
   addRegistry: (name: string, url: string, readonly: boolean) => Promise<Registry>;
@@ -22,7 +30,7 @@ interface RegistryStore {
   loadResources: (registryId: string, resourceType?: ResourceType) => Promise<void>;
   publishToRegistry: (resourceId: string, registryId: string) => Promise<Resource>;
   selectRegistry: (registry: Registry | null) => void;
-  setActiveTab: (tab: ResourceType | 'mcp') => void;
+  setActiveTab: (tab: ResourceType) => void;
   getFilteredResources: () => Resource[];
 
   registryPlugins: RegistryPlugin[];
@@ -32,16 +40,16 @@ interface RegistryStore {
   loadRegistryPlugins: (registryId: string) => Promise<void>;
   loadPluginResources: (pluginId: string) => Promise<void>;
   togglePluginExpanded: (pluginId: string) => void;
-  pluginMcpServers: Record<string, McpServer[]>;
-  loadPluginMcpServers: (pluginId: string) => Promise<void>;
   installPluginToProject: (pluginId: string, projectId: string) => Promise<void>;
   installPluginToGlobal: (pluginId: string) => Promise<void>;
 
-  resourceInstallStatus: Record<string, Record<string, ResourceLink[]>>; // pluginId → { resourceId → links[] }
+  resourceInstallStatus: Record<string, Record<string, ResourceLink[]>>;
   loadResourceInstallStatus: (pluginId: string) => Promise<void>;
   installResourceToProject: (resourceId: string, projectId: string, pluginId: string) => Promise<void>;
   installResourceToGlobal: (resourceId: string, pluginId: string) => Promise<void>;
   uninstallResource: (linkIds: string[], pluginId: string) => Promise<void>;
+  updateInstalledResource: (resourceId: string, pluginId: string) => Promise<void>;
+  retainAsLibrary: (resourceId: string, pluginId: string) => Promise<void>;
 }
 
 export const useRegistryStore = create<RegistryStore>((set, get) => ({
@@ -55,24 +63,18 @@ export const useRegistryStore = create<RegistryStore>((set, get) => ({
   registryPlugins: [],
   pluginResources: {},
   expandedPlugins: new Set(),
-  pluginMcpServers: {},
   resourceInstallStatus: {},
 
   loadRegistries: async () => {
-    set({ loading: true, error: null });
-    try {
-      const registries = await invoke<Registry[]>('list_registries');
-      set({ registries, loading: false });
-    } catch (e) {
-      set({ error: String(e), loading: false });
-    }
+    const registries = await asyncAction(set, 'loading', listRegistries);
+    if (registries) set({ registries });
   },
 
   addRegistry: async (name: string, url: string, readonly: boolean) => {
     set({ loading: true, error: null });
     try {
-      const registry = await invoke<Registry>('add_registry', { name, url, readonly });
-      const registries = await invoke<Registry[]>('list_registries');
+      const registry = await apiAddRegistry(name, url, readonly);
+      const registries = await listRegistries();
       set({ registries, loading: false });
       return registry;
     } catch (e) {
@@ -82,52 +84,38 @@ export const useRegistryStore = create<RegistryStore>((set, get) => ({
   },
 
   removeRegistry: async (id: string) => {
-    set({ loading: true, error: null });
-    try {
-      await invoke('remove_registry', { id });
-      const registries = await invoke<Registry[]>('list_registries');
-      set({ registries, activeRegistry: null, loading: false });
-    } catch (e) {
-      set({ error: String(e), loading: false });
-    }
+    await asyncAction(set, 'loading', async () => {
+      await apiRemoveRegistry(id);
+      const registries = await listRegistries();
+      set({ registries, activeRegistry: null });
+    });
   },
 
   syncRegistry: async (id: string) => {
-    set({ syncing: true, error: null });
-    try {
-      await invoke('sync_registry', { id });
-      const registries = await invoke<Registry[]>('list_registries');
+    await asyncAction(set, 'syncing', async () => {
+      await apiSyncRegistry(id);
+      const registries = await listRegistries();
       const activeRegistry = registries.find((r) => r.id === id) ?? null;
-      set({ registries, activeRegistry, syncing: false });
-    } catch (e) {
-      set({ error: String(e), syncing: false });
-    }
+      set({ registries, activeRegistry });
+    });
   },
 
   syncAll: async () => {
-    set({ syncing: true, error: null });
-    try {
-      const registries = await invoke<Registry[]>('sync_all_registries');
-      set({ registries, syncing: false });
-    } catch (e) {
-      set({ error: String(e), syncing: false });
-    }
+    const registries = await asyncAction(set, 'syncing', syncAllRegistries);
+    if (registries) set({ registries });
   },
 
   pushRegistry: async (id: string, message: string) => {
-    set({ syncing: true, error: null });
-    try {
-      await invoke('push_registry', { id, message });
-      const registries = await invoke<Registry[]>('list_registries');
-      set({ registries, syncing: false });
-    } catch (e) {
-      set({ error: String(e), syncing: false });
-    }
+    await asyncAction(set, 'syncing', async () => {
+      await apiPushRegistry(id, message);
+      const registries = await listRegistries();
+      set({ registries });
+    });
   },
 
   checkUpdates: async () => {
     try {
-      const registries = await invoke<Registry[]>('check_registry_updates');
+      const registries = await checkRegistryUpdates();
       set({ registries });
     } catch (e) {
       set({ error: String(e) });
@@ -135,20 +123,12 @@ export const useRegistryStore = create<RegistryStore>((set, get) => ({
   },
 
   loadResources: async (registryId: string, resourceType?: ResourceType) => {
-    set({ loading: true, error: null });
-    try {
-      const resources = await invoke<Resource[]>('list_registry_resources', {
-        registryId,
-        resourceType: resourceType ?? null,
-      });
-      set({ resources, loading: false });
-    } catch (e) {
-      set({ error: String(e), loading: false });
-    }
+    const resources = await asyncAction(set, 'loading', () => listRegistryResources(registryId, resourceType));
+    if (resources) set({ resources });
   },
 
   publishToRegistry: async (resourceId: string, registryId: string) => {
-    const resource = await invoke<Resource>('publish_to_registry', { resourceId, registryId });
+    const resource = await apiPublishToRegistry(resourceId, registryId);
     return resource;
   },
 
@@ -156,13 +136,12 @@ export const useRegistryStore = create<RegistryStore>((set, get) => ({
     set({ activeRegistry: registry, resources: [] });
   },
 
-  setActiveTab: (tab: ResourceType | 'mcp') => {
+  setActiveTab: (tab: ResourceType) => {
     set({ activeTab: tab });
   },
 
   getFilteredResources: () => {
     const { resources, activeTab } = get();
-    if (activeTab === 'mcp') return [];
     return resources.filter((r) => r.resource_type === activeTab);
   },
 
@@ -180,17 +159,6 @@ export const useRegistryStore = create<RegistryStore>((set, get) => ({
       const resources = await getRegistryPluginResources(pluginId);
       set((state) => ({
         pluginResources: { ...state.pluginResources, [pluginId]: resources },
-      }));
-    } catch (e) {
-      set({ error: String(e) });
-    }
-  },
-
-  loadPluginMcpServers: async (pluginId: string) => {
-    try {
-      const servers = await getRegistryPluginMcpServers(pluginId);
-      set((state) => ({
-        pluginMcpServers: { ...state.pluginMcpServers, [pluginId]: servers },
       }));
     } catch (e) {
       set({ error: String(e) });
@@ -277,6 +245,38 @@ export const useRegistryStore = create<RegistryStore>((set, get) => ({
       const status = await getPluginResourcesInstallStatus(pluginId);
       set((state) => ({
         resourceInstallStatus: { ...state.resourceInstallStatus, [pluginId]: status },
+        syncing: false,
+      }));
+    } catch (e) {
+      set({ error: String(e), syncing: false });
+    }
+  },
+
+  updateInstalledResource: async (resourceId: string, pluginId: string) => {
+    try {
+      set({ syncing: true });
+      await apiUpdateInstalledResource(resourceId);
+      const status = await getPluginResourcesInstallStatus(pluginId);
+      const resources = await getRegistryPluginResources(pluginId);
+      set((state) => ({
+        resourceInstallStatus: { ...state.resourceInstallStatus, [pluginId]: status },
+        pluginResources: { ...state.pluginResources, [pluginId]: resources },
+        syncing: false,
+      }));
+    } catch (e) {
+      set({ error: String(e), syncing: false });
+    }
+  },
+
+  retainAsLibrary: async (resourceId: string, pluginId: string) => {
+    try {
+      set({ syncing: true });
+      await apiRetainAsLibrary(resourceId);
+      const status = await getPluginResourcesInstallStatus(pluginId);
+      const resources = await getRegistryPluginResources(pluginId);
+      set((state) => ({
+        resourceInstallStatus: { ...state.resourceInstallStatus, [pluginId]: status },
+        pluginResources: { ...state.pluginResources, [pluginId]: resources },
         syncing: false,
       }));
     } catch (e) {

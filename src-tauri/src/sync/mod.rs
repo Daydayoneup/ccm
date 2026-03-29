@@ -16,7 +16,9 @@ pub struct SyncReport {
 pub struct SyncEngine;
 
 impl SyncEngine {
-    /// Full reconciliation: compare scanned files vs DB records for a given scope
+    /// Full reconciliation: compare scanned files vs DB records for a given scope.
+    /// Uses `source_path::name` as composite key so multiple resources from
+    /// the same file (e.g. MCP servers in one .mcp.json) are tracked individually.
     pub fn reconcile(
         db: &Database,
         scope: &ResourceScope,
@@ -27,17 +29,25 @@ impl SyncEngine {
 
         let mut db_map: HashMap<String, Resource> = db_resources
             .into_iter()
-            .map(|r| (r.source_path.clone(), r))
+            .map(|r| (format!("{}::{}", r.source_path, r.name), r))
             .collect();
 
         let mut report = SyncReport::default();
 
         for scanned_res in scanned {
-            if let Some(existing) = db_map.remove(&scanned_res.source_path) {
-                // File exists in both FS and DB — check hash
-                if scanned_res.content_hash != existing.content_hash {
+            let effective_scope = scanned_res.scope_override.as_ref().unwrap_or(scope);
+            let key = format!("{}::{}", scanned_res.source_path, scanned_res.name);
+            if let Some(existing) = db_map.remove(&key) {
+                // File exists in both FS and DB — check hash, scope, or metadata change
+                let scope_changed = existing.scope != *effective_scope;
+                let metadata_changed = scanned_res.linked_metadata != existing.metadata;
+                let installed_from_changed = scanned_res.installed_from_id != existing.installed_from_id;
+                if scanned_res.content_hash != existing.content_hash || scope_changed || metadata_changed || installed_from_changed {
                     let mut updated = existing;
                     updated.content_hash = scanned_res.content_hash;
+                    updated.scope = effective_scope.clone();
+                    updated.metadata = scanned_res.linked_metadata;
+                    updated.installed_from_id = scanned_res.installed_from_id;
                     updated.updated_at = chrono::Utc::now().to_rfc3339();
                     db.update_resource(&updated).map_err(|e| e.to_string())?;
                     report.updated += 1;
@@ -50,10 +60,11 @@ impl SyncEngine {
                     resource_type: scanned_res.resource_type,
                     name: scanned_res.name,
                     description: None,
-                    scope: scope.clone(),
+                    scope: effective_scope.clone(),
                     source_path: scanned_res.source_path,
                     content_hash: scanned_res.content_hash,
-                    metadata: None,
+                    metadata: scanned_res.linked_metadata,
+                    installed_from_id: scanned_res.installed_from_id,
                     created_at: now.clone(),
                     updated_at: now,
                     version: None,
@@ -85,6 +96,9 @@ mod tests {
             name: name.to_string(),
             source_path: path.to_string(),
             content_hash: Some(hash.to_string()),
+            scope_override: None,
+            linked_metadata: None,
+            installed_from_id: None,
         }
     }
 

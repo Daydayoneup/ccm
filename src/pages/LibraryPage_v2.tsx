@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, Globe, Package, Trash2 } from 'lucide-react';
+import { navigateToResource } from '@/lib/navigation';
+import { Package, Plus, Trash2 } from 'lucide-react';
+import { ResourceCard } from '@/components/shared/ResourceCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { DeleteConfirmDialog } from '@/components/shared/DeleteConfirmDialog';
 import { ResourceTypeTabs } from '@/components/shared/ResourceTypeTabs';
-import { CreateLibraryResourceDialog } from '@/components/library/CreateLibraryResourceDialog';
+import { CreateResourceDialog } from '@/components/shared/CreateResourceDialog';
 import { DeployToGlobalDialog } from '@/components/library/DeployToGlobalDialog';
 import { InstallToProjectDialog } from '@/components/library/InstallToProjectDialog';
 import { LinkHealthBadge } from '@/components/library/LinkHealthBadge';
@@ -22,15 +23,7 @@ import { useLibraryStore } from '@/stores/library-store-v2';
 import { useProjectStoreV2 } from '@/stores/project-store-v2';
 import type { LinkType, Resource } from '@/types/v2';
 import { RegistryPluginList } from '@/components/registry/RegistryPluginList';
-
-const borderClasses: Record<string, string> = {
-  skill: 'res-border-skill',
-  agent: 'res-border-agent',
-  rule: 'res-border-rule',
-  hook: 'res-border-hook',
-  mcp_server: 'res-border-mcp_server',
-  command: 'res-border-command',
-};
+import { updateInstalledResource as apiUpdateInstalledResource, retainAsLibrary as apiRetainAsLibrary } from '@/lib/tauri-api';
 
 export function LibraryPage_v2() {
   const { t } = useI18n();
@@ -49,6 +42,8 @@ export function LibraryPage_v2() {
     setActiveTab,
     getFilteredResources,
     selectedSource,
+    installFilter,
+    setInstallFilter,
   } = useLibraryStore();
   const { registries, installPluginToProject, installPluginToGlobal } = useRegistryStore();
   const { projects, loadProjects } = useProjectStoreV2();
@@ -66,6 +61,7 @@ export function LibraryPage_v2() {
   const [globalInstallPluginId, setGlobalInstallPluginId] = useState<string | null>(null);
   const [globalInstallPluginName, setGlobalInstallPluginName] = useState('');
   const [pendingDelete, setPendingDelete] = useState<Resource | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [resourceInstall, setResourceInstall] = useState<{
     mode: 'project' | 'global';
     resourceId: string;
@@ -120,17 +116,10 @@ export function LibraryPage_v2() {
             <>
               <LinkHealthBadge linkHealth={linkHealth} onCheck={checkLinkHealth} loading={loading} />
               {pageTab === 'resources' ? (
-                <CreateLibraryResourceDialog
-                onSubmit={createResource}
-                defaultType={activeTab}
-                onCreated={(resource) => {
-                  const filePath = resource.source_path;
-                  const extra = resource.resource_type === 'skill'
-                    ? `&resource_id=${resource.id}&type=skill&scope=library`
-                    : '';
-                  navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
-                }}
-              />
+                <Button size="sm" onClick={() => setCreateOpen(true)}>
+                  <Plus className="mr-1 size-4" />
+                  {t('common.create')}
+                </Button>
               ) : null}
             </>
           ) : null
@@ -150,7 +139,17 @@ export function LibraryPage_v2() {
                   </TabsList>
 
                   <TabsContent value="resources" className="mt-4 space-y-4">
-                    <ResourceTypeTabs activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab as import('@/types/v2').ResourceType)} />
+                    <div className="flex items-center gap-2">
+                      <ResourceTypeTabs activeTab={activeTab} onTabChange={(tab) => setActiveTab(tab as import('@/types/v2').ResourceType)} />
+                      <Button
+                        variant={installFilter === 'installed' ? 'default' : 'outline'}
+                        size="sm"
+                        className="shrink-0 rounded-md text-xs"
+                        onClick={() => setInstallFilter(installFilter === 'installed' ? 'all' : 'installed')}
+                      >
+                        {installFilter === 'installed' ? t('library.showAll') : t('library.showInstalled')}
+                      </Button>
+                    </div>
                   </TabsContent>
                   <TabsContent value="plugin-packs" className="hidden" />
                 </Tabs>
@@ -169,85 +168,69 @@ export function LibraryPage_v2() {
                       <EmptyState title={t('library.noResources')} />
                     ) : (
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                        {filteredResources.map((resource) => (
-                          <div
-                            key={resource.id}
-                            className={`card-glow group cursor-pointer rounded-md border bg-card/90 p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_50px_rgba(15,23,42,0.10)] ${borderClasses[resource.resource_type] || ''}`}
-                            onClick={() => {
-                              const filePath = resource.source_path;
-                              const extra = resource.resource_type === 'skill'
-                                ? `&resource_id=${resource.id}&type=skill&scope=${selectedSource === 'local' ? 'library' : 'registry'}`
-                                : '';
-                              navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
+                        {filteredResources.map((item) => {
+                          const status = item.installations.length === 0 ? 'not_installed'
+                            : item.resource.is_draft === -1 ? 'removed'
+                            : item.has_update ? 'update_available'
+                            : 'up_to_date';
+                          return (
+                          <ResourceCard
+                            key={item.resource.id}
+                            resource={item.resource}
+                            status={status}
+                            links={[]}
+                            projectNames={projectNames}
+                            onClick={() => navigateToResource(navigate, item.resource)}
+                            onInstallToProject={() => {
+                              setSelectedResourceId(item.resource.id);
+                              setSelectedResourceName(item.resource.name);
+                              setInstallDialogOpen(true);
                             }}
-                          >
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="truncate text-sm font-semibold">{resource.name}</span>
-                                {resource.description ? (
-                                  <Badge variant="outline" className="shrink-0 text-[10px] font-normal">
-                                    {resource.description}
-                                  </Badge>
-                                ) : null}
-                              </div>
-                              <p className="mt-3 truncate text-xs font-mono text-muted-foreground">{resource.source_path}</p>
-                            </div>
-                            <div className="mt-4 flex items-center justify-end gap-1 border-t border-border/50 pt-3">
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="text-muted-foreground hover:text-primary"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedResourceId(resource.id);
-                                  setSelectedResourceName(resource.name);
-                                  setInstallDialogOpen(true);
-                                }}
-                                title={t('library.installToProject')}
-                              >
-                                <Download className="size-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="text-muted-foreground hover:text-primary"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedResourceId(resource.id);
-                                  setSelectedResourceName(resource.name);
-                                  setDeployDialogOpen(true);
-                                }}
-                                title={t('library.deployToGlobal')}
-                              >
-                                <Globe className="size-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="text-muted-foreground hover:text-primary"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setAddToPluginResourceId(resource.id);
-                                }}
-                                title={t('library.addToPluginPack')}
-                              >
-                                <Package className="size-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="text-muted-foreground hover:text-destructive"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setPendingDelete(resource);
-                                }}
-                                title={t('common.delete')}
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
+                            onInstallToGlobal={() => {
+                              setSelectedResourceId(item.resource.id);
+                              setSelectedResourceName(item.resource.name);
+                              setDeployDialogOpen(true);
+                            }}
+                            onUpdate={item.has_update ? async () => {
+                              await apiUpdateInstalledResource(item.resource.id);
+                              loadResources();
+                            } : undefined}
+                            onRetain={item.resource.is_draft === -1 ? async () => {
+                              await apiRetainAsLibrary(item.resource.id);
+                              loadResources();
+                            } : undefined}
+                            onUninstall={undefined}
+                            extraActions={
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="text-muted-foreground hover:text-primary"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAddToPluginResourceId(item.resource.id);
+                                  }}
+                                  title={t('library.addToPluginPack')}
+                                >
+                                  <Package className="size-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="text-muted-foreground hover:text-destructive"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPendingDelete(item.resource);
+                                  }}
+                                  title={t('common.delete')}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </>
+                            }
+                          />
+                        );
+                        })}
                       </div>
                     )}
                   </PanelSection>
@@ -291,6 +274,7 @@ export function LibraryPage_v2() {
         onInstall={async (projectId, linkType: LinkType) => {
           if (!selectedResourceId) return;
           await installToProject(selectedResourceId, projectId, linkType);
+          loadResources();
         }}
       />
 
@@ -301,6 +285,7 @@ export function LibraryPage_v2() {
         onDeploy={async (linkType: LinkType) => {
           if (!selectedResourceId) return;
           await deployToGlobal(selectedResourceId, linkType);
+          loadResources();
         }}
       />
 
@@ -356,6 +341,17 @@ export function LibraryPage_v2() {
             await useRegistryStore.getState().installResourceToGlobal(resourceInstall.resourceId, resourceInstall.pluginId);
           }
         }}
+      />
+
+      <CreateResourceDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        resourceType={activeTab}
+        onSubmit={async (type, name, content) => {
+          const resource = await createResource(type, name, '', content);
+          return resource;
+        }}
+        onCreated={(resource) => navigateToResource(navigate, resource)}
       />
 
       <DeleteConfirmDialog

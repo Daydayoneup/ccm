@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
+import { listPluginsV2, scanPlugins, getPluginResources, extractToLibrary } from '@/lib/tauri-api';
+import { asyncAction } from '@/lib/store-utils';
 import type { Plugin, Resource, ResourceType } from '@/types/v2';
 
 interface PluginStore {
@@ -30,23 +31,13 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
   activeTab: 'skill',
 
   loadPlugins: async () => {
-    set({ loading: true, error: null });
-    try {
-      const plugins = await invoke<Plugin[]>('list_plugins_v2');
-      set({ plugins, loading: false });
-    } catch (e) {
-      set({ error: String(e), loading: false });
-    }
+    const plugins = await asyncAction(set, 'loading', listPluginsV2);
+    if (plugins) set({ plugins });
   },
 
   scanPlugins: async () => {
-    set({ scanning: true, error: null });
-    try {
-      const plugins = await invoke<Plugin[]>('scan_plugins');
-      set({ plugins, scanning: false });
-    } catch (e) {
-      set({ error: String(e), scanning: false });
-    }
+    const plugins = await asyncAction(set, 'scanning', scanPlugins);
+    if (plugins) set({ plugins });
   },
 
   selectPlugin: (plugin: Plugin | null) => {
@@ -54,20 +45,12 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
   },
 
   loadPluginResources: async (pluginId: string, resourceType?: ResourceType) => {
-    set({ loading: true, error: null });
-    try {
-      const resources = await invoke<Resource[]>('get_plugin_resources', {
-        pluginId,
-        resourceType: resourceType ?? null,
-      });
-      set({ pluginResources: resources, loading: false });
-    } catch (e) {
-      set({ error: String(e), loading: false });
-    }
+    const resources = await asyncAction(set, 'loading', () => getPluginResources(pluginId, resourceType));
+    if (resources) set({ pluginResources: resources });
   },
 
   extractToLibrary: async (resourceId: string) => {
-    const resource = await invoke<Resource>('extract_to_library', { resourceId });
+    const resource = await extractToLibrary(resourceId);
     return resource;
   },
 

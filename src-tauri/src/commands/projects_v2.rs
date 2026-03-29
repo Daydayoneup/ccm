@@ -1,8 +1,8 @@
 use tauri::State;
-use crate::adapters::{AdapterRegistry, LinkType, TargetScope, normalize_link_type};
+use crate::adapters::AdapterRegistry;
 use crate::adapters::file_based::copy_dir_recursive;
 use crate::db::Database;
-use crate::models::v2::{Resource, Project, ResourceType, ResourceScope, ResourceLink};
+use crate::models::v2::{Resource, Project, ResourceType, ResourceScope};
 use crate::scanner;
 use std::path::Path;
 use std::fs;
@@ -39,65 +39,7 @@ pub fn register_project_v2(
         let _ = db.insert_resource(&resource);
     }
 
-    // Scan and insert project-level MCP servers from .mcp.json
-    let mut found_mcp_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mcp_path = Path::new(&path).join(".mcp.json");
-    if mcp_path.is_file() {
-        let mcp_servers = scanner::mcp::parse_mcp_file(
-            mcp_path.to_str().unwrap_or_default(),
-            Some(project.id.clone()),
-        );
-        for scanned in mcp_servers {
-            found_mcp_names.insert(scanned.name.clone());
-            let server = crate::models::v2::McpServer {
-                id: uuid::Uuid::new_v4().to_string(),
-                name: scanned.name,
-                project_id: Some(project.id.clone()),
-                server_type: scanned.server_type,
-                command: scanned.command,
-                args: scanned.args,
-                url: scanned.url,
-                env: scanned.env,
-                source_path: scanned.source_path,
-                registry_plugin_id: None,
-            };
-            let _ = db.insert_mcp_server(&server);
-        }
-    }
-
-    // Also parse .claude/settings.local.json for enabledMcpjsonServers
-    let settings_path = Path::new(&path).join(".claude").join("settings.local.json");
-    if settings_path.is_file() {
-        let enabled_names = scanner::mcp::parse_enabled_mcp_from_settings(
-            settings_path.to_str().unwrap_or_default(),
-        );
-        for name in enabled_names {
-            if found_mcp_names.contains(&name) {
-                continue;
-            }
-            let server = crate::models::v2::McpServer {
-                id: uuid::Uuid::new_v4().to_string(),
-                name,
-                project_id: Some(project.id.clone()),
-                server_type: None,
-                command: None,
-                args: None,
-                url: None,
-                env: None,
-                source_path: settings_path.to_string_lossy().to_string(),
-                registry_plugin_id: None,
-            };
-            let _ = db.insert_mcp_server(&server);
-        }
-    }
-
     Ok(project)
-}
-
-/// List global MCP servers (project_id IS NULL)
-#[tauri::command]
-pub fn list_global_mcp_servers(db: State<Database>) -> Result<Vec<crate::models::v2::McpServer>, String> {
-    db.list_global_mcp_servers().map_err(|e| e.to_string())
 }
 
 /// Result of removing a project — DB deletion always succeeds if Ok, warnings collect disk errors.
@@ -123,12 +65,6 @@ pub fn remove_project_v2(
         if r.source_path.starts_with(&project.path) {
             let _ = db.delete_resource(&r.id);
         }
-    }
-
-    // Delete project MCP servers from DB
-    let mcp_servers = db.list_mcp_servers_by_project(&id).map_err(|e| e.to_string())?;
-    for s in mcp_servers {
-        let _ = db.delete_mcp_server(&s.id);
     }
 
     db.delete_project(&id).map_err(|e| e.to_string())?;
@@ -277,6 +213,7 @@ pub fn rescan_project(
                 updated_at: now.clone(),
                 version: None,
                 is_draft: 1,
+            installed_from_id: None,
             };
             if db.insert_resource(&new_resource).is_ok() {
                 added += 1;
@@ -312,12 +249,6 @@ pub struct RescanResult {
     pub removed: usize,
 }
 
-/// List MCP servers for a specific project
-#[tauri::command]
-pub fn list_project_mcp_servers(db: State<Database>, project_id: String) -> Result<Vec<crate::models::v2::McpServer>, String> {
-    db.list_mcp_servers_by_project(&project_id).map_err(|e| e.to_string())
-}
-
 /// Discover projects from ~/.claude/projects/ that are not yet registered
 #[tauri::command]
 pub fn discover_claude_projects(db: State<Database>) -> Result<Vec<scanner::project::DiscoveredProject>, String> {
@@ -332,14 +263,18 @@ pub fn discover_claude_projects(db: State<Database>) -> Result<Vec<scanner::proj
 
 /// Scan directories for projects not yet registered
 #[tauri::command]
-pub fn scan_and_discover_projects(db: State<Database>, directories: Vec<String>) -> Result<Vec<Project>, String> {
+pub fn scan_and_discover_projects(
+    db: State<Database>,
+    adapter_registry: State<'_, AdapterRegistry>,
+    directories: Vec<String>,
+) -> Result<Vec<Project>, String> {
     let registered = db.list_projects().map_err(|e| e.to_string())?;
     let registered_paths: std::collections::HashSet<String> = registered.iter().map(|p| p.path.clone()).collect();
 
     let mut discovered = Vec::new();
     for dir in directories {
-        let results = scanner::project::scan_directory_v2(&dir);
-        for (project, _resources) in results {
+        let projects = scanner::project::scan_directory_v3(&dir, &adapter_registry);
+        for project in projects {
             if !registered_paths.contains(&project.path) {
                 discovered.push(project);
             }
@@ -387,6 +322,11 @@ pub fn list_project_resources(
         .map_err(|e| e.to_string())?;
 
     let mut seen_ids: std::collections::HashSet<String> = results.iter().map(|r| r.id.clone()).collect();
+    // Track MCP server names to avoid duplicates (project-scoped vs linked library)
+    let mut seen_mcp_names: std::collections::HashSet<String> = results.iter()
+        .filter(|r| r.resource_type == ResourceType::McpServer)
+        .map(|r| r.name.clone())
+        .collect();
 
     for link in &links {
         if seen_ids.contains(&link.resource_id) {
@@ -399,7 +339,16 @@ pub fn list_project_resources(
                     continue;
                 }
             }
+            // Skip linked MCP resources if a project-scoped one with same name already exists
+            if resource.resource_type == ResourceType::McpServer
+                && seen_mcp_names.contains(&resource.name)
+            {
+                continue;
+            }
             seen_ids.insert(resource.id.clone());
+            if resource.resource_type == ResourceType::McpServer {
+                seen_mcp_names.insert(resource.name.clone());
+            }
             results.push(resource);
         }
     }
@@ -420,74 +369,18 @@ pub fn create_project_resource(
     let project = db.get_project(&project_id).map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Project not found: {}", project_id))?;
 
-    let rtype = ResourceType::from_str(&resource_type)
-        .ok_or_else(|| format!("Invalid resource type: {}", resource_type))?;
-
-    // Validate content via adapter
-    let adapter = adapter_registry.get(&rtype)
-        .ok_or_else(|| format!("No adapter for resource type: {}", resource_type))?;
-    adapter.validate_content(&content)?;
-
     let claude_dir = Path::new(&project.path).join(".claude");
 
-    let file_path = match rtype {
-        ResourceType::Skill => {
-            let skill_dir = claude_dir.join("skills").join(&name);
-            fs::create_dir_all(&skill_dir).map_err(|e| e.to_string())?;
-            skill_dir.join("SKILL.md")
-        }
-        ResourceType::Agent => {
-            let dir = claude_dir.join("agents");
-            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            dir.join(format!("{}.md", name))
-        }
-        ResourceType::Rule => {
-            let dir = claude_dir.join("rules");
-            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            dir.join(format!("{}.md", name))
-        }
-        ResourceType::Hook => {
-            let dir = claude_dir.join("hooks");
-            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            dir.join(format!("{}.json", name))
-        }
-        ResourceType::Command => {
-            let dir = claude_dir.join("commands");
-            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            dir.join(format!("{}.md", name))
-        }
-        ResourceType::McpServer => {
-            return Err("McpServer resources cannot be created via this command".to_string());
-        }
-    };
-
-    fs::write(&file_path, &content).map_err(|e| e.to_string())?;
-
-    let source_path = match rtype {
-        ResourceType::Skill => file_path.parent().unwrap().to_string_lossy().to_string(),
-        _ => file_path.to_string_lossy().to_string(),
-    };
-
-    let hash = scanner::compute_file_hash(&source_path);
-    let now = chrono::Utc::now().to_rfc3339();
-
-    let resource = Resource {
-        id: uuid::Uuid::new_v4().to_string(),
-        resource_type: rtype,
-        name,
-        description: None,
-        scope: ResourceScope::Project,
-        source_path,
-        content_hash: hash,
-        metadata: None,
-        created_at: now.clone(),
-        updated_at: now,
-        version: None,
-        is_draft: 1,
-    };
-
-    db.insert_resource(&resource).map_err(|e| e.to_string())?;
-    Ok(resource)
+    super::resource_ops::create_resource_at(
+        &db,
+        &adapter_registry,
+        &resource_type,
+        &name,
+        None,
+        &content,
+        &claude_dir,
+        ResourceScope::Project,
+    )
 }
 
 /// Delete a project resource (file/symlink + DB record)
@@ -506,6 +399,57 @@ pub fn delete_project_resource(db: State<Database>, resource_id: String) -> Resu
     let is_registry_source = resource.source_path.contains("/.claude-manager/registries/")
         || resource.source_path.contains("/.claude-manager/library/");
 
+    // ConfigBased resources (MCP): remove entry from JSON config file
+    if resource.resource_type == ResourceType::McpServer {
+        let server_name = &resource.name;
+
+        // Find the project this resource belongs to
+        let project = db.list_projects()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|p| resource.source_path.starts_with(&p.path) || is_project_local);
+        let project_id = project.as_ref().map(|p| p.id.clone());
+
+        // Determine the config file to edit
+        let config_file = if resource.source_path.ends_with(".mcp.json") || resource.source_path.ends_with(".claude.json") {
+            Some(std::path::PathBuf::from(&resource.source_path))
+        } else if let Some(ref proj) = project {
+            Some(std::path::PathBuf::from(&proj.path).join(".mcp.json"))
+        } else {
+            None
+        };
+
+        // Remove entry from the config file
+        if let Some(config_path) = config_file {
+            if config_path.exists() {
+                if let Ok(content) = fs::read_to_string(&config_path) {
+                    if let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(servers) = config.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
+                            servers.remove(server_name);
+                            let _ = fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_default());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Clean up resource_links: find links targeting this project for this MCP name.
+        // Links are keyed by SOURCE resource_id (library), not the project resource,
+        // so we search by project_id + config_key match.
+        if let Some(ref pid) = project_id {
+            let project_links = db.list_links_by_project(pid).unwrap_or_default();
+            for link in project_links {
+                if link.link_type == "config_merge"
+                    && link.config_key.as_deref() == Some(&format!("mcpServers.{}", server_name))
+                {
+                    let _ = db.delete_link(&link.id);
+                }
+            }
+        }
+
+        return db.delete_resource(&resource_id).map_err(|e| e.to_string());
+    }
+
     if is_project_local && !is_registry_source {
         if path.exists() || path.symlink_metadata().is_ok() {
             if path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
@@ -517,12 +461,11 @@ pub fn delete_project_resource(db: State<Database>, resource_id: String) -> Resu
             }
         }
     }
-    // For non-local resources (from registry/library), just remove the DB record
 
     db.delete_resource(&resource_id).map_err(|e| e.to_string())
 }
 
-/// Publish a project resource to the central library (copy + optional symlink)
+/// Publish a project resource to the central library (copy + optional install back via symlink)
 #[tauri::command]
 pub fn publish_to_library(
     db: State<Database>,
@@ -535,26 +478,31 @@ pub fn publish_to_library(
     let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
     let library_base = home.join(".claude-manager").join("library");
 
-    let type_dir = match resource.resource_type {
-        ResourceType::Skill => "skills",
-        ResourceType::Agent => "agents",
-        ResourceType::Rule => "rules",
-        ResourceType::Hook => "hooks",
-        ResourceType::Command => "commands",
-        ResourceType::McpServer => "mcp_servers",
-    };
+    let adapter_registry = AdapterRegistry::new();
+    let type_dir = adapter_registry
+        .get(&resource.resource_type)
+        .map(|a| a.type_dir())
+        .ok_or_else(|| format!("No adapter for {:?}", resource.resource_type))?;
     let target_dir = library_base.join(type_dir);
     fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
 
+    // Resolve symlinks to get real source content (avoid self-referential copy)
     let source = Path::new(&resource.source_path);
-    let target = if source.is_dir() {
+    let real_source = fs::canonicalize(source)
+        .map_err(|e| format!("Cannot resolve source path: {}", e))?;
+
+    // Copy source to library
+    let target = if real_source.is_dir() {
         let dest = target_dir.join(&resource.name);
-        copy_dir_recursive(source, &dest)?;
+        if dest.exists() {
+            fs::remove_dir_all(&dest).map_err(|e| e.to_string())?;
+        }
+        copy_dir_recursive(&real_source, &dest)?;
         dest
     } else {
-        let file_name = source.file_name().ok_or("Invalid source path")?;
+        let file_name = real_source.file_name().ok_or("Invalid source path")?;
         let dest = target_dir.join(file_name);
-        fs::copy(source, &dest).map_err(|e| e.to_string())?;
+        fs::copy(&real_source, &dest).map_err(|e| e.to_string())?;
         dest
     };
 
@@ -562,60 +510,99 @@ pub fn publish_to_library(
     let hash = scanner::compute_file_hash(&target_path_str);
     let now = chrono::Utc::now().to_rfc3339();
 
-    let library_resource = Resource {
-        id: uuid::Uuid::new_v4().to_string(),
-        resource_type: resource.resource_type.clone(),
-        name: resource.name.clone(),
-        description: resource.description.clone(),
-        scope: ResourceScope::Library,
-        source_path: target_path_str,
-        content_hash: hash,
-        metadata: None,
-        created_at: now.clone(),
-        updated_at: now.clone(),
-        version: None,
-        is_draft: 1,
+    // Check if a library resource with same name+type already exists — update instead of duplicate
+    let existing_lib = db.list_resources_by_scope(&ResourceScope::Library)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|r| r.name == resource.name && r.resource_type == resource.resource_type);
+
+    let library_resource = if let Some(mut existing) = existing_lib {
+        existing.content_hash = hash;
+        existing.source_path = target_path_str;
+        existing.updated_at = now.clone();
+        db.update_resource(&existing).map_err(|e| e.to_string())?;
+        existing
+    } else {
+        let new_resource = Resource {
+            id: uuid::Uuid::new_v4().to_string(),
+            resource_type: resource.resource_type.clone(),
+            name: resource.name.clone(),
+            description: resource.description.clone(),
+            scope: ResourceScope::Library,
+            source_path: target_path_str,
+            content_hash: hash,
+            metadata: None,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            version: None,
+            is_draft: 1,
+            installed_from_id: None,
+        };
+        db.insert_resource(&new_resource).map_err(|e| e.to_string())?;
+        new_resource
     };
 
-    db.insert_resource(&library_resource).map_err(|e| e.to_string())?;
-
-    // Optionally replace original with symlink
+    // Optionally replace original with symlink via the standard install flow
     if replace_with_symlink {
-        let original = Path::new(&resource.source_path);
-        if original.is_dir() {
-            fs::remove_dir_all(original).map_err(|e| e.to_string())?;
+        // Determine install scope from the original resource
+        let scope = if resource.scope == ResourceScope::Global {
+            crate::install::InstallScope::Global
         } else {
-            fs::remove_file(original).map_err(|e| e.to_string())?;
-        }
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&target, original).map_err(|e| e.to_string())?;
-
-        // Record the link
-        let link = ResourceLink {
-            id: uuid::Uuid::new_v4().to_string(),
-            resource_id: library_resource.id.clone(),
-            target_scope: "project".to_string(),
-            target_path: resource.source_path.clone(),
-            config_key: None,
-            project_id: None,
-            link_type: "symlink".to_string(),
-            created_at: now,
+            // Find the project this resource belongs to
+            let project_id = db.list_projects()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|p| resource.source_path.starts_with(&p.path))
+                .map(|p| p.id);
+            match project_id {
+                Some(pid) => {
+                    let project = db.get_project(&pid).map_err(|e| e.to_string())?
+                        .ok_or("Project not found")?;
+                    crate::install::InstallScope::Project {
+                        id: pid,
+                        path: project.path,
+                    }
+                }
+                None => return Ok(library_resource), // Can't determine project, skip symlink
+            }
         };
-        db.insert_link(&link).map_err(|e| e.to_string())?;
+
+        // Remove original (file or directory)
+        let original = Path::new(&resource.source_path);
+        if original.symlink_metadata().is_ok() {
+            if original.is_dir() && !original.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+                fs::remove_dir_all(original).map_err(|e| e.to_string())?;
+            } else {
+                fs::remove_file(original).map_err(|e| e.to_string())?;
+            }
+        }
+
+        // Use standard install flow: library → installed/ → symlink
+        let _ = crate::install_service::install(&db, &library_resource, scope, &adapter_registry)?;
+
+        // Update the original resource record to reflect it's now installed from library
+        let mut updated_original = db.get_resource(&resource_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Original resource disappeared")?;
+        updated_original.installed_from_id = Some(library_resource.id.clone());
+        updated_original.updated_at = chrono::Utc::now().to_rfc3339();
+        db.update_resource(&updated_original).map_err(|e| e.to_string())?;
     }
 
     Ok(library_resource)
 }
 
-/// Install a library resource into a project via adapter
+/// Install a library resource into a project
 #[tauri::command]
 pub fn install_from_library(
     db: State<Database>,
-    adapter_registry: State<'_, AdapterRegistry>,
+    adapter_registry: State<AdapterRegistry>,
     library_resource_id: String,
     project_id: String,
     link_type: String,
 ) -> Result<(), String> {
+    let _ = link_type;
+
     let lib_resource = db.get_resource(&library_resource_id).map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Library resource not found: {}", library_resource_id))?;
 
@@ -626,24 +613,12 @@ pub fn install_from_library(
     let project = db.get_project(&project_id).map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Project not found: {}", project_id))?;
 
-    let adapter = adapter_registry.get(&lib_resource.resource_type)
-        .ok_or_else(|| "No adapter for resource type".to_string())?;
+    let scope = crate::install::InstallScope::Project {
+        id: project_id,
+        path: project.path.clone(),
+    };
 
-    let requested_link_type = LinkType::from_str(&link_type)
-        .ok_or_else(|| "Invalid link type".to_string())?;
-    let effective_link_type = normalize_link_type(adapter, requested_link_type);
-
-    let target = adapter.resolve_target(
-        &TargetScope::Project,
-        &lib_resource.name,
-        Some(&project),
-    )?;
-
-    let mut link = adapter.install(&lib_resource, &target, &effective_link_type)?;
-    link.target_scope = "project".to_string();
-    link.project_id = Some(project_id.clone());
-
-    db.insert_link(&link).map_err(|e| e.to_string())?;
+    super::resource_ops::install_resource_to(&db, &lib_resource, scope, &adapter_registry)?;
 
     Ok(())
 }

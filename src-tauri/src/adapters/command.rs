@@ -1,6 +1,6 @@
 use super::*;
 use super::file_based::{file_install, file_uninstall, resolve_file_target, scan_file_resources};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct CommandAdapter;
 
@@ -55,6 +55,12 @@ impl ResourceAdapter for CommandAdapter {
 
     fn scan(&self, scope: &ResourceScope, base_path: &Path) -> Result<Vec<Resource>, String> {
         scan_file_resources(scope, base_path, "commands", &ResourceType::Command, false)
+    }
+
+    fn type_dir(&self) -> &'static str { "commands" }
+
+    fn resolve_file_path(&self, base_dir: &Path, name: &str) -> PathBuf {
+        base_dir.join("commands").join(format!("{}.md", name))
     }
 }
 

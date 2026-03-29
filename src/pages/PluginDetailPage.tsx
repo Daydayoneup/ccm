@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { navigateToResource } from '@/lib/navigation';
 import { usePluginStore } from '@/stores/plugin-store';
 import { ResourceTypeTabs } from '@/components/shared/ResourceTypeTabs';
 import { Button } from '@/components/ui/button';
@@ -117,13 +118,7 @@ export function PluginDetailPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => {
-                    const filePath = resource.source_path;
-                    const extra = resource.resource_type === 'skill'
-                      ? `&resource_id=${resource.id}&type=skill&scope=library`
-                      : '';
-                    navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
-                  }}
+                  onClick={() => navigateToResource(navigate, resource)}
                   title="Edit"
                 >
                   <Pencil className="size-4" />

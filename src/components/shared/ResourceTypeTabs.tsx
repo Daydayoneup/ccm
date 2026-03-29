@@ -13,7 +13,6 @@ const RESOURCE_TYPES: { value: ResourceType; key: string; dotColor: string }[] =
 ];
 
 const EXTRA_TABS: { value: string; key: string }[] = [
-  { value: 'mcp', key: 'mcp' },
   { value: 'plugin', key: 'plugin' },
   { value: 'permissions', key: 'permissions' },
   { value: 'env', key: 'env' },
@@ -23,7 +22,6 @@ const EXTRA_TABS: { value: string; key: string }[] = [
 interface ResourceTypeTabsProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
-  includeMcp?: boolean;
   includePlugin?: boolean;
   includePermissions?: boolean;
   includeEnv?: boolean;
@@ -31,7 +29,7 @@ interface ResourceTypeTabsProps {
   counts?: Partial<Record<string, number>>;
 }
 
-export function ResourceTypeTabs({ activeTab, onTabChange, includeMcp, includePlugin, includePermissions, includeEnv, includeFiles, counts }: ResourceTypeTabsProps) {
+export function ResourceTypeTabs({ activeTab, onTabChange, includePlugin, includePermissions, includeEnv, includeFiles, counts }: ResourceTypeTabsProps) {
   const { t, formatNumber } = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -39,7 +37,6 @@ export function ResourceTypeTabs({ activeTab, onTabChange, includeMcp, includePl
 
   const extras = EXTRA_TABS.filter(
     (t) =>
-      (t.value === 'mcp' && includeMcp) ||
       (t.value === 'plugin' && includePlugin) ||
       (t.value === 'permissions' && includePermissions) ||
       (t.value === 'env' && includeEnv) ||

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { getAppSetting, toggleApiServer, setAppSetting, getApiTokenStatus, generateApiToken } from '@/lib/tauri-api';
 import { Copy, RefreshCw, Wifi } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,30 +17,30 @@ export function ApiSettingsCard() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    invoke<string | null>('get_app_setting', { key: 'api_enabled' }).then(
+    getAppSetting('api_enabled').then(
       (value) => setApiEnabled(value === 'true')
     );
-    invoke<string | null>('get_app_setting', { key: 'api_port' }).then(
+    getAppSetting('api_port').then(
       (value) => { if (value) setApiPort(value); }
     );
-    invoke<string | null>('get_api_token_status').then(setTokenLast4);
+    getApiTokenStatus().then(setTokenLast4);
   }, []);
 
   const handleToggle = async (enabled: boolean) => {
     setApiEnabled(enabled);
-    await invoke('toggle_api_server', { enabled });
+    await toggleApiServer(enabled);
   };
 
   const handlePortChange = async (port: string) => {
     setApiPort(port);
     const num = parseInt(port, 10);
     if (num >= 1024 && num <= 65535) {
-      await invoke('set_app_setting', { key: 'api_port', value: port });
+      await setAppSetting('api_port', port);
     }
   };
 
   const handleGenerateToken = async () => {
-    const token = await invoke<string>('generate_api_token');
+    const token = await generateApiToken();
     setNewToken(token);
     setTokenLast4(token.slice(-4));
     setCopied(false);

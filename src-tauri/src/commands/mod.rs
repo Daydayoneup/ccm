@@ -1,11 +1,9 @@
 pub mod api;
 pub mod files;
+pub mod mcp;
 pub mod frontmatter_cmd;
 pub mod global;
-#[allow(dead_code)]
-pub mod library;
 pub mod library_v2;
-pub mod migration;
 pub mod projects_v2;
 pub mod symlinks;
 pub mod plugins_v2;
@@ -17,3 +15,4 @@ pub mod library_plugin;
 pub mod proxy;
 pub mod settings;
 pub mod versions;
+pub(crate) mod resource_ops;

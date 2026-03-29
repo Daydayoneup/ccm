@@ -2,7 +2,7 @@ use super::*;
 use super::config_based::*;
 use crate::scanner::compute_content_hash;
 use chrono::Utc;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 const VALID_HOOK_EVENTS: &[&str] = &[
@@ -135,6 +135,7 @@ impl ResourceAdapter for HookAdapter {
             project_id: None, // caller fills this in
             link_type: LinkType::ConfigMerge.as_str().to_string(),
             created_at: now,
+            installed_hash: None,
         })
     }
 
@@ -194,6 +195,16 @@ impl ResourceAdapter for HookAdapter {
         }
 
         Ok(())
+    }
+
+    fn type_dir(&self) -> &'static str { "hooks" }
+
+    fn resolve_file_path(&self, base_dir: &Path, name: &str) -> PathBuf {
+        base_dir.join("hooks").join(format!("{}.json", name))
+    }
+
+    fn metadata_from_content(&self, content: &str) -> Option<String> {
+        Some(content.to_string())
     }
 
     fn scan(&self, scope: &ResourceScope, base_path: &Path) -> Result<Vec<Resource>, String> {
@@ -298,6 +309,7 @@ impl ResourceAdapter for HookAdapter {
                     updated_at: now.clone(),
                     version: None,
                     is_draft: 1,
+            installed_from_id: None,
                 });
             }
         }
@@ -339,6 +351,7 @@ mod tests {
             updated_at: Utc::now().to_rfc3339(),
             version: None,
             is_draft: 1,
+            installed_from_id: None,
         }
     }
 
@@ -505,6 +518,7 @@ mod tests {
             project_id: None,
             link_type: "config_merge".to_string(),
             created_at: Utc::now().to_rfc3339(),
+            installed_hash: None,
         };
 
         adapter.uninstall(&link).unwrap();

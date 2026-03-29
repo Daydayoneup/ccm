@@ -1,6 +1,7 @@
 import { Badge } from '@/components/ui/badge';
 import { ScopeBadge } from '@/lib/scope-utils';
 import { useNavigate } from 'react-router-dom';
+import { navigateToResource } from '@/lib/navigation';
 import type { Resource } from '@/types/v2';
 import { useI18n } from '@/i18n/provider';
 
@@ -36,13 +37,7 @@ export function RecentChanges({ resources }: RecentChangesProps) {
           <div
             key={resource.id}
             className="group flex cursor-pointer items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-accent/30"
-            onClick={() => {
-              const filePath = resource.source_path;
-              const extra = resource.resource_type === 'skill'
-                ? `&resource_id=${resource.id}&type=skill&scope=${resource.scope === 'project' ? 'project' : 'library'}`
-                : '';
-              navigate(`/editor?file=${encodeURIComponent(filePath)}${extra}`);
-            }}
+            onClick={() => navigateToResource(navigate, resource)}
           >
             <div className="flex min-w-0 items-center gap-3">
               <div className={`size-2 rounded-full ${typeColors[resource.resource_type]?.split(' ')[0] || 'bg-muted'}`} />

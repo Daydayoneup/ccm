@@ -2,6 +2,8 @@ pub mod adapters;
 pub mod commands;
 pub mod db;
 pub mod frontmatter;
+pub mod install;
+pub mod install_service;
 pub mod models;
 pub mod git;
 pub mod proxy;
@@ -55,6 +57,18 @@ pub fn run() {
             db.migrate_v2_to_v3().map_err(|e| format!("Schema migration failed: {}", e))?;
             db.migrate_v3_to_v4().map_err(|e| format!("Schema migration v3→v4 failed: {}", e))?;
             db.migrate_v4_to_v5().ok();
+            db.migrate_v5_to_v6().ok();
+            db.migrate_v6_to_v7().ok();
+            db.migrate_v7_to_v8().ok();
+            db.migrate_v8_to_v9().ok();
+            db.migrate_v9_to_v10().ok();
+            db.migrate_v10_to_v11().ok();
+
+            // One-time migration: convert registry symlinks to installed/ copies
+            let installed_base = home.join(".claude-manager").join("installed");
+            if let Err(e) = commands::registry::migrate_symlinks_to_installed(&db, &installed_base) {
+                eprintln!("Symlink migration warning: {}", e);
+            }
 
             // Register SyncState wrapped in Arc for thread sharing
             app.manage(std::sync::Arc::new(sync::state::SyncState::new()));
@@ -180,6 +194,7 @@ pub fn run() {
             commands::symlinks::link_resource,
             commands::symlinks::unlink_resource,
             commands::symlinks::is_symlink_valid,
+            commands::files::path_is_directory,
             commands::files::read_file,
             commands::files::write_file,
             commands::files::delete_path,
@@ -187,13 +202,7 @@ pub fn run() {
             commands::files::list_directory,
             commands::files::file_content_hash,
             commands::files::rename_path,
-            commands::migration::import_resources_from_project,
-            commands::migration::scan_global_resources,
-            commands::migration::import_global_resources,
-            commands::migration::restore_global_resources,
-            commands::migration::scan_installed_plugins,
-            commands::migration::scan_mcp_configs,
-            commands::sync::full_sync,
+commands::sync::full_sync,
             commands::sync::sync_scope,
             commands::sync::get_dashboard_stats,
             commands::sync::get_recent_resources,
@@ -213,8 +222,6 @@ pub fn run() {
             commands::projects_v2::delete_project_resource,
             commands::projects_v2::publish_to_library,
             commands::projects_v2::install_from_library,
-            commands::projects_v2::list_project_mcp_servers,
-            commands::projects_v2::list_global_mcp_servers,
             commands::projects_v2::get_project_permissions,
             commands::projects_v2::update_project_permissions,
             commands::projects_v2::toggle_project_pin,
@@ -228,6 +235,8 @@ pub fn run() {
             commands::plugins_v2::install_plugin,
             commands::plugins_v2::uninstall_plugin,
             commands::library_v2::list_library_resources,
+            commands::library_v2::list_library_resources_with_links,
+            commands::library_v2::list_library_resources_with_installs,
             commands::library_v2::create_library_resource,
             commands::library_v2::delete_library_resource,
             commands::library_v2::install_to_project,
@@ -263,6 +272,10 @@ pub fn run() {
             commands::registry::install_resource_to_global,
             commands::registry::uninstall_resource,
             commands::registry::get_plugin_resources_install_status,
+            commands::registry::update_installed_resource,
+            commands::registry::retain_as_library,
+            commands::registry::compute_installed_hash,
+            commands::registry::list_installed_resources,
             commands::library_plugin::create_library_plugin,
             commands::library_plugin::delete_library_plugin,
             commands::library_plugin::list_library_plugins,
@@ -282,6 +295,8 @@ pub fn run() {
             commands::frontmatter_cmd::save_skill_with_frontmatter,
             commands::frontmatter_cmd::save_skill_raw_content,
             commands::frontmatter_cmd::get_resource,
+            commands::mcp::update_mcp_server_config,
+            commands::mcp::create_mcp_server,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

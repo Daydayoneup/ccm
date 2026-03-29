@@ -70,6 +70,25 @@ pub trait ResourceAdapter: Send + Sync {
     fn uninstall(&self, link: &ResourceLink) -> Result<(), String>;
     fn validate_content(&self, content: &str) -> Result<(), String>;
     fn scan(&self, scope: &ResourceScope, base_path: &Path) -> Result<Vec<Resource>, String>;
+
+    /// Subdirectory name for this resource type ("skills", "agents", "mcp_servers", etc.)
+    fn type_dir(&self) -> &'static str;
+
+    /// Generate the full file path for a resource under base_dir.
+    /// base_dir is the parent (e.g., ~/.claude-manager/library/ or project/.claude/)
+    fn resolve_file_path(&self, base_dir: &Path, name: &str) -> PathBuf;
+
+    /// Compute source_path from the written file path.
+    /// Default: returns the file path itself. Skill overrides to return parent dir.
+    fn source_path_from_file(&self, file_path: &Path) -> String {
+        file_path.to_string_lossy().to_string()
+    }
+
+    /// Generate metadata from content for library creation.
+    /// Default: None (file-based resources). Hook/McpServer override to return Some(content).
+    fn metadata_from_content(&self, _content: &str) -> Option<String> {
+        None
+    }
 }
 
 pub fn normalize_link_type(adapter: &dyn ResourceAdapter, requested: LinkType) -> LinkType {

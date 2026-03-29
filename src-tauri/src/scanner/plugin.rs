@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::Path;
-use super::{scan_claude_dir, ScannedResource, ScannedPlugin, compute_file_hash, v1_to_v2_resource_type};
+use super::{ScannedResource, ScannedPlugin};
 
 /// Scan installed plugins from ~/.claude/plugins/installed_plugins.json
 pub fn scan_installed_plugins() -> Vec<ScannedPlugin> {
@@ -93,34 +93,30 @@ fn scan_plugin_path(install_path: &str) -> Vec<ScannedResource> {
     if install_path.is_empty() {
         return Vec::new();
     }
-    let plugin_path = Path::new(install_path);
-    if !plugin_path.is_dir() {
+    let path = Path::new(install_path);
+    if !path.is_dir() {
         return Vec::new();
     }
-
+    let adapter_registry = crate::adapters::AdapterRegistry::new();
     // Try flat layout first (skills/ at root)
-    let mut local = scan_claude_dir(plugin_path);
-
-    // If flat layout found nothing, try nested .claude/ layout
-    if local.is_empty() {
-        let claude_dir = plugin_path.join(".claude");
-        if claude_dir.is_dir() {
-            local = scan_claude_dir(&claude_dir);
-        }
+    let resources = super::scan_resources_for_sync(
+        path,
+        &crate::models::v2::ResourceScope::Plugin,
+        &adapter_registry,
+    );
+    if !resources.is_empty() {
+        return resources;
     }
-
-    local
-        .into_iter()
-        .map(|lr| {
-            let hash = compute_file_hash(&lr.path);
-            ScannedResource {
-                resource_type: v1_to_v2_resource_type(&lr.resource_type),
-                name: lr.name,
-                source_path: lr.path,
-                content_hash: hash,
-            }
-        })
-        .collect()
+    // Try nested .claude/ layout
+    let nested = path.join(".claude");
+    if nested.is_dir() {
+        return super::scan_resources_for_sync(
+            &nested,
+            &crate::models::v2::ResourceScope::Plugin,
+            &adapter_registry,
+        );
+    }
+    Vec::new()
 }
 
 #[cfg(test)]
@@ -141,19 +137,12 @@ mod tests {
         )
         .unwrap();
 
-        let local = scan_claude_dir(plugin_dir);
-        let resources: Vec<ScannedResource> = local
-            .into_iter()
-            .map(|lr| {
-                let hash = compute_file_hash(&lr.path);
-                ScannedResource {
-                    resource_type: v1_to_v2_resource_type(&lr.resource_type),
-                    name: lr.name,
-                    source_path: lr.path,
-                    content_hash: hash,
-                }
-            })
-            .collect();
+        let adapter_registry = crate::adapters::AdapterRegistry::new();
+        let resources = crate::scanner::scan_resources_for_sync(
+            plugin_dir,
+            &crate::models::v2::ResourceScope::Plugin,
+            &adapter_registry,
+        );
 
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].name, "my-plugin-skill");

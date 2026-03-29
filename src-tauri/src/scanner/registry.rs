@@ -2,7 +2,6 @@ use std::path::Path;
 use serde::Deserialize;
 
 use super::ScannedResource;
-use super::{compute_file_hash, v1_to_v2_resource_type};
 
 #[derive(Debug, Deserialize)]
 pub struct MarketplaceJson {
@@ -87,31 +86,26 @@ pub fn scan_plugin_dir(plugin_path: &str) -> Vec<ScannedResource> {
     if !path.exists() {
         return vec![];
     }
-
+    let adapter_registry = crate::adapters::AdapterRegistry::new();
     // Try flat layout first (skills/ at root)
-    let mut local_resources = super::scan_claude_dir(path);
-
-    // If flat layout found nothing, try nested .claude/ layout
-    if local_resources.is_empty() {
-        let claude_dir = path.join(".claude");
-        if claude_dir.is_dir() {
-            local_resources = super::scan_claude_dir(&claude_dir);
-        }
+    let resources = super::scan_resources_for_sync(
+        path,
+        &crate::models::v2::ResourceScope::Registry,
+        &adapter_registry,
+    );
+    if !resources.is_empty() {
+        return resources;
     }
-
-    local_resources
-        .into_iter()
-        .map(|lr| {
-            let resource_type = v1_to_v2_resource_type(&lr.resource_type);
-            let content_hash = compute_file_hash(&lr.path);
-            ScannedResource {
-                resource_type,
-                name: lr.name,
-                source_path: lr.path,
-                content_hash,
-            }
-        })
-        .collect()
+    // Try nested .claude/ layout
+    let nested = path.join(".claude");
+    if nested.is_dir() {
+        return super::scan_resources_for_sync(
+            &nested,
+            &crate::models::v2::ResourceScope::Registry,
+            &adapter_registry,
+        );
+    }
+    vec![]
 }
 
 /// Scan a registry using the old flat structure (fallback when no marketplace.json)
@@ -158,11 +152,11 @@ mod tests {
         fs::create_dir_all(root.join("commands")).unwrap();
         fs::write(root.join("commands/my-cmd.md"), "# Command").unwrap();
 
-        fs::create_dir_all(root.join("hooks")).unwrap();
-        fs::write(root.join("hooks/my-hook.json"), r#"{"event":"test"}"#).unwrap();
+        // Note: hooks are config-based (settings.json) and not scanned as files
+        // in registry scope, so we don't include them here.
 
         let resources = scan_registry(root.to_str().unwrap());
-        assert_eq!(resources.len(), 5);
+        assert_eq!(resources.len(), 4);
     }
 
     #[test]

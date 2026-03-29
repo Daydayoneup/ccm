@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use serde::{Deserialize, Serialize};
-use super::{scan_claude_dir, detect_language, ScannedResource, compute_file_hash, v1_to_v2_resource_type};
+use super::detect_language;
 use crate::models::v2::Project;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,53 +178,6 @@ fn should_filter_path(project_path: &str, home_dir: &str) -> bool {
     false
 }
 
-/// Scan a single project directory and return a v2 Project + its resources
-pub fn scan_project_v2(project_path: &str) -> Result<(Project, Vec<ScannedResource>), String> {
-    let path = Path::new(project_path);
-    if !path.is_dir() {
-        return Err(format!("Project path does not exist: {}", project_path));
-    }
-
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-
-    let claude_dir = path.join(".claude");
-    let resources = if claude_dir.is_dir() {
-        let local = scan_claude_dir(&claude_dir);
-        local
-            .into_iter()
-            .map(|lr| {
-                let hash = compute_file_hash(&lr.path);
-                ScannedResource {
-                    resource_type: v1_to_v2_resource_type(&lr.resource_type),
-                    name: lr.name,
-                    source_path: lr.path,
-                    content_hash: hash,
-                }
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
-
-    let language = detect_language(project_path);
-    let now = chrono::Utc::now().to_rfc3339();
-
-    let project = Project {
-        id: uuid::Uuid::new_v4().to_string(),
-        name,
-        path: project_path.to_string(),
-        language: Some(language),
-        last_scanned: Some(now),
-        pinned: 0,
-        launch_count: 0,
-    };
-
-    Ok((project, resources))
-}
-
 /// Scan a single project directory using adapter registry, returning a v2 Project + v2 Resources.
 /// Unlike `scan_project_v2`, this delegates scanning to adapters for each resource type.
 pub fn scan_project_v3(
@@ -265,7 +218,11 @@ pub fn scan_project_v3(
 
 /// Scan a directory for projects containing `.claude/`, returning v2 Projects.
 /// Checks both the directory itself and its immediate subdirectories.
-pub fn scan_directory_v2(dir: &str) -> Vec<(Project, Vec<ScannedResource>)> {
+/// Uses adapter registry for resource scanning (v3 path).
+pub fn scan_directory_v3(
+    dir: &str,
+    adapter_registry: &crate::adapters::AdapterRegistry,
+) -> Vec<Project> {
     let dir_path = Path::new(dir);
     if !dir_path.is_dir() {
         return Vec::new();
@@ -275,8 +232,8 @@ pub fn scan_directory_v2(dir: &str) -> Vec<(Project, Vec<ScannedResource>)> {
 
     // Check if the directory itself is a project (has .claude/)
     if dir_path.join(".claude").is_dir() {
-        if let Ok(result) = scan_project_v2(dir) {
-            results.push(result);
+        if let Ok((project, _)) = scan_project_v3(dir, adapter_registry) {
+            results.push(project);
         }
     }
 
@@ -285,8 +242,8 @@ pub fn scan_directory_v2(dir: &str) -> Vec<(Project, Vec<ScannedResource>)> {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() && path.join(".claude").is_dir() {
-                if let Ok(result) = scan_project_v2(path.to_str().unwrap_or_default()) {
-                    results.push(result);
+                if let Ok((project, _)) = scan_project_v3(path.to_str().unwrap_or_default(), adapter_registry) {
+                    results.push(project);
                 }
             }
         }
@@ -502,57 +459,4 @@ mod tests {
         assert_eq!(results.len(), 0);
     }
 
-    // ── existing tests ──
-
-    #[test]
-    fn test_scan_project_v2() {
-        let tmp = TempDir::new().unwrap();
-        let proj = tmp.path().join("myproject");
-        fs::create_dir_all(proj.join(".claude/skills/deploy")).unwrap();
-        fs::write(proj.join(".claude/skills/deploy/SKILL.md"), "# Deploy").unwrap();
-        fs::write(proj.join("Cargo.toml"), "[package]").unwrap();
-
-        let (project, resources) = scan_project_v2(proj.to_str().unwrap()).unwrap();
-        assert_eq!(project.name, "myproject");
-        assert_eq!(project.language.as_deref(), Some("Rust"));
-        assert_eq!(resources.len(), 1);
-        assert_eq!(resources[0].name, "deploy");
-        assert!(resources[0].content_hash.is_some());
-    }
-
-    #[test]
-    fn test_scan_directory_v2() {
-        let tmp = TempDir::new().unwrap();
-        let proj1 = tmp.path().join("proj1");
-        fs::create_dir_all(proj1.join(".claude/rules")).unwrap();
-        fs::write(proj1.join(".claude/rules/r.md"), "rule").unwrap();
-
-        let proj2 = tmp.path().join("proj2");
-        fs::create_dir_all(&proj2).unwrap(); // no .claude dir
-
-        let results = scan_directory_v2(tmp.path().to_str().unwrap());
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0.name, "proj1");
-    }
-
-    #[test]
-    fn test_scan_directory_v2_includes_self() {
-        let tmp = TempDir::new().unwrap();
-        // The directory itself is a project (has .claude/)
-        fs::create_dir_all(tmp.path().join(".claude/skills/my-skill")).unwrap();
-        fs::write(tmp.path().join(".claude/skills/my-skill/SKILL.md"), "# Skill").unwrap();
-
-        // Also has a sub-project
-        let sub = tmp.path().join("subproject");
-        fs::create_dir_all(sub.join(".claude/rules")).unwrap();
-        fs::write(sub.join(".claude/rules/r.md"), "rule").unwrap();
-
-        let results = scan_directory_v2(tmp.path().to_str().unwrap());
-        assert_eq!(results.len(), 2);
-
-        let names: Vec<&str> = results.iter().map(|(p, _)| p.name.as_str()).collect();
-        assert!(names.contains(&"subproject"));
-        // The parent dir itself should also be found
-        assert_eq!(results[0].1.len(), 1); // parent has 1 resource
-    }
 }

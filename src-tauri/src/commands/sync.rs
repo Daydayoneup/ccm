@@ -4,8 +4,8 @@ use crate::db::Database;
 use crate::sync::{SyncEngine, SyncReport};
 use crate::sync::state::SyncState;
 use crate::scanner;
-use crate::models::v2::{Plugin, ResourceScope, McpServer};
-use crate::commands::registry::scan_and_insert_plugins;
+use crate::models::v2::{Plugin, ResourceScope};
+use crate::commands::registry::upsert_registry_plugins;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SyncCommandResult {
@@ -18,6 +18,12 @@ pub struct SyncProgress {
     pub current: usize,
     pub total: usize,
     pub message: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, Default)]
+pub struct SyncImpact {
+    pub updates_available: usize,
+    pub upstream_removed: usize,
 }
 
 fn emit_progress(app: &AppHandle, stage: &str, current: usize, total: usize, message: &str) {
@@ -49,8 +55,14 @@ fn run_sync(app: &AppHandle, db: &Database) -> (SyncReport, Vec<String>) {
     let mut errors: Vec<String> = Vec::new();
 
     // Stage 1: Global resources
-    emit_progress(app, "global", 1, 6, "Scanning global resources...");
-    let global_scanned = scanner::global::scan_global_resources();
+    emit_progress(app, "global", 1, 5, "Scanning global resources...");
+    let adapter_registry = crate::adapters::AdapterRegistry::new();
+    let home = dirs::home_dir().unwrap_or_default();
+    let global_scanned = scanner::scan_resources_for_sync(
+        &home.join(".claude"),
+        &ResourceScope::Global,
+        &adapter_registry,
+    );
     accumulate(
         &mut total_report,
         &mut errors,
@@ -58,23 +70,14 @@ fn run_sync(app: &AppHandle, db: &Database) -> (SyncReport, Vec<String>) {
     );
 
     // Stage 2: Library resources
-    emit_progress(app, "library", 2, 6, "Scanning library resources...");
-    let home = dirs::home_dir().unwrap_or_default();
+    emit_progress(app, "library", 2, 5, "Scanning library resources...");
     let library_dir = home.join(".claude-manager").join("library");
     if library_dir.is_dir() {
-        let local = scanner::scan_claude_dir(&library_dir);
-        let library_scanned: Vec<scanner::ScannedResource> = local
-            .into_iter()
-            .map(|lr| {
-                let hash = scanner::compute_file_hash(&lr.path);
-                scanner::ScannedResource {
-                    resource_type: scanner::v1_to_v2_resource_type(&lr.resource_type),
-                    name: lr.name,
-                    source_path: lr.path,
-                    content_hash: hash,
-                }
-            })
-            .collect();
+        let library_scanned = scanner::scan_resources_for_sync(
+            &library_dir,
+            &ResourceScope::Library,
+            &adapter_registry,
+        );
         accumulate(
             &mut total_report,
             &mut errors,
@@ -82,8 +85,9 @@ fn run_sync(app: &AppHandle, db: &Database) -> (SyncReport, Vec<String>) {
         );
     }
 
-    // Stage 3: Project resources
-    emit_progress(app, "projects", 3, 6, "Scanning project resources...");
+    // Stage 3: Project resources (adapter-based, includes MCP)
+    emit_progress(app, "projects", 3, 5, "Scanning project resources...");
+    let mut all_project_scanned: Vec<scanner::ScannedResource> = Vec::new();
     match db.list_projects() {
         Ok(projects) => {
             let project_count = projects.len();
@@ -92,31 +96,15 @@ fn run_sync(app: &AppHandle, db: &Database) -> (SyncReport, Vec<String>) {
                     app,
                     "projects",
                     3,
-                    6,
+                    5,
                     &format!("Scanning project {}/{}: {}", i + 1, project_count, project.name),
                 );
                 let project_path = std::path::Path::new(&project.path);
-                let claude_dir = project_path.join(".claude");
-                if claude_dir.is_dir() {
-                    let local = scanner::scan_claude_dir(&claude_dir);
-                    let project_scanned: Vec<scanner::ScannedResource> = local
-                        .into_iter()
-                        .map(|lr| {
-                            let hash = scanner::compute_file_hash(&lr.path);
-                            scanner::ScannedResource {
-                                resource_type: scanner::v1_to_v2_resource_type(&lr.resource_type),
-                                name: lr.name,
-                                source_path: lr.path,
-                                content_hash: hash,
-                            }
-                        })
-                        .collect();
-                    accumulate(
-                        &mut total_report,
-                        &mut errors,
-                        SyncEngine::reconcile(db, &ResourceScope::Project, project_scanned),
-                    );
-                }
+                all_project_scanned.extend(scanner::scan_resources_for_sync(
+                    project_path,
+                    &ResourceScope::Project,
+                    &adapter_registry,
+                ));
             }
         }
         Err(e) => {
@@ -125,9 +113,14 @@ fn run_sync(app: &AppHandle, db: &Database) -> (SyncReport, Vec<String>) {
             errors.push(msg);
         }
     }
+    accumulate(
+        &mut total_report,
+        &mut errors,
+        SyncEngine::reconcile(db, &ResourceScope::Project, all_project_scanned),
+    );
 
     // Stage 4: Plugins
-    emit_progress(app, "plugins", 4, 6, "Scanning installed plugins...");
+    emit_progress(app, "plugins", 4, 5, "Scanning installed plugins...");
     let scanned_plugins = scanner::plugin::scan_installed_plugins();
     match db.list_plugins() {
         Ok(existing_plugins) => {
@@ -191,51 +184,12 @@ fn run_sync(app: &AppHandle, db: &Database) -> (SyncReport, Vec<String>) {
         SyncEngine::reconcile(db, &ResourceScope::Plugin, plugin_resources),
     );
 
-    // Stage 5: MCP servers
-    emit_progress(app, "mcp", 5, 6, "Scanning MCP servers...");
-    if let Ok(old_servers) = db.list_global_mcp_servers() {
-        for s in old_servers {
-            let _ = db.delete_mcp_server(&s.id);
-        }
-    }
-    let mut global_mcp = scanner::mcp::scan_global_mcp();
-    global_mcp.extend(scanner::mcp::scan_plugin_mcp_servers());
-    for scanned in global_mcp {
-        let server = McpServer {
-            id: uuid::Uuid::new_v4().to_string(),
-            name: scanned.name,
-            project_id: None,
-            server_type: scanned.server_type,
-            command: scanned.command,
-            args: scanned.args,
-            url: scanned.url,
-            env: scanned.env,
-            source_path: scanned.source_path,
-            registry_plugin_id: None,
-        };
-        let _ = db.insert_mcp_server(&server);
-    }
-
-    // Stage 6: Registries
-    emit_progress(app, "registries", 6, 6, "Scanning registries...");
+    // Stage 5: Registries
+    emit_progress(app, "registries", 5, 5, "Scanning registries...");
     match db.list_registries() {
         Ok(registries) => {
             for registry in &registries {
-                // Delete old plugins and resources
-                if let Ok(old_plugins) = db.list_registry_plugins(&registry.id) {
-                    if let Ok(resources) = db.list_resources_by_scope(&ResourceScope::Registry) {
-                        for old_plugin in &old_plugins {
-                            for r in &resources {
-                                if r.metadata.as_deref() == Some(&old_plugin.id) {
-                                    let _ = db.delete_resource(&r.id);
-                                }
-                            }
-                        }
-                    }
-                }
-                let _ = db.delete_registry_plugins_by_registry(&registry.id);
-
-                if let Err(e) = scan_and_insert_plugins(db, registry) {
+                if let Err(e) = upsert_registry_plugins(db, registry) {
                     let msg = format!("Failed to scan registry {}: {}", registry.name, e);
                     eprintln!("{}", msg);
                     errors.push(msg);
@@ -249,7 +203,31 @@ fn run_sync(app: &AppHandle, db: &Database) -> (SyncReport, Vec<String>) {
         }
     }
 
-    emit_progress(app, "done", 6, 6, "Sync complete");
+    // Compute sync impact: how many installed resources have updates or were removed
+    let mut sync_impact = SyncImpact::default();
+    if let Ok(all_links) = db.list_all_links() {
+        let mut seen_resources: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for link in &all_links {
+            if link.link_type != "symlink" || link.installed_hash.is_none() {
+                continue;
+            }
+            if !seen_resources.insert(link.resource_id.clone()) {
+                continue; // already counted
+            }
+            if let Ok(Some(resource)) = db.get_resource(&link.resource_id) {
+                if resource.is_draft == -1 {
+                    sync_impact.upstream_removed += 1;
+                } else if let Some(ref content_hash) = resource.content_hash {
+                    if link.installed_hash.as_deref() != Some(content_hash.as_str()) {
+                        sync_impact.updates_available += 1;
+                    }
+                }
+            }
+        }
+    }
+    let _ = app.emit("sync-impact", &sync_impact);
+
+    emit_progress(app, "done", 5, 5, "Sync complete");
     (total_report, errors)
 }
 
@@ -309,29 +287,38 @@ pub async fn full_sync(
 pub fn sync_scope(db: State<Database>, scope: String) -> Result<SyncReport, String> {
     let resource_scope =
         ResourceScope::from_str(&scope).ok_or_else(|| format!("Invalid scope: {}", scope))?;
+    let adapter_registry = crate::adapters::AdapterRegistry::new();
 
     let scanned = match resource_scope {
-        ResourceScope::Global => scanner::global::scan_global_resources(),
+        ResourceScope::Global => {
+            let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+            scanner::scan_resources_for_sync(
+                &home.join(".claude"),
+                &resource_scope,
+                &adapter_registry,
+            )
+        }
         ResourceScope::Library => {
             let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
             let library_dir = home.join(".claude-manager").join("library");
             if library_dir.is_dir() {
-                let local = scanner::scan_claude_dir(&library_dir);
-                local
-                    .into_iter()
-                    .map(|lr| {
-                        let hash = scanner::compute_file_hash(&lr.path);
-                        scanner::ScannedResource {
-                            resource_type: scanner::v1_to_v2_resource_type(&lr.resource_type),
-                            name: lr.name,
-                            source_path: lr.path,
-                            content_hash: hash,
-                        }
-                    })
-                    .collect()
+                scanner::scan_resources_for_sync(&library_dir, &resource_scope, &adapter_registry)
             } else {
                 Vec::new()
             }
+        }
+        ResourceScope::Project => {
+            let projects = db.list_projects().map_err(|e| e.to_string())?;
+            let mut all = Vec::new();
+            for project in &projects {
+                let project_path = std::path::Path::new(&project.path);
+                all.extend(scanner::scan_resources_for_sync(
+                    project_path,
+                    &resource_scope,
+                    &adapter_registry,
+                ));
+            }
+            all
         }
         ResourceScope::Plugin => {
             let scanned_plugins = scanner::plugin::scan_installed_plugins();
@@ -339,27 +326,6 @@ pub fn sync_scope(db: State<Database>, scope: String) -> Result<SyncReport, Stri
                 .into_iter()
                 .flat_map(|sp| sp.resources)
                 .collect()
-        }
-        ResourceScope::Project => {
-            // For project scope, sync all registered projects
-            let projects = db.list_projects().map_err(|e| e.to_string())?;
-            let mut all = Vec::new();
-            for project in &projects {
-                let claude_dir = std::path::Path::new(&project.path).join(".claude");
-                if claude_dir.is_dir() {
-                    let local = scanner::scan_claude_dir(&claude_dir);
-                    all.extend(local.into_iter().map(|lr| {
-                        let hash = scanner::compute_file_hash(&lr.path);
-                        scanner::ScannedResource {
-                            resource_type: scanner::v1_to_v2_resource_type(&lr.resource_type),
-                            name: lr.name,
-                            source_path: lr.path,
-                            content_hash: hash,
-                        }
-                    }));
-                }
-            }
-            all
         }
         ResourceScope::Registry => {
             // Registry sync is handled separately via registry-specific commands

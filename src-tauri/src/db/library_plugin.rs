@@ -87,7 +87,7 @@ impl Database {
     pub fn list_library_plugin_resources(&self, plugin_id: &str) -> Result<Vec<crate::models::v2::Resource>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT r.id, r.resource_type, r.name, r.description, r.scope, r.source_path, r.content_hash, r.metadata, r.created_at, r.updated_at, r.version, r.is_draft
+            "SELECT r.id, r.resource_type, r.name, r.description, r.scope, r.source_path, r.content_hash, r.metadata, r.created_at, r.updated_at, r.version, r.is_draft, r.installed_from_id
              FROM resources r
              INNER JOIN library_plugin_resources lpr ON r.id = lpr.resource_id
              WHERE lpr.plugin_id = ?1
@@ -110,6 +110,7 @@ impl Database {
                 updated_at: row.get(9)?,
                 version: row.get(10)?,
                 is_draft: row.get::<_, Option<i32>>(11)?.unwrap_or(1),
+                installed_from_id: row.get(12)?,
             })
         })?;
         let mut resources = Vec::new();
@@ -186,6 +187,7 @@ mod tests {
             updated_at: "2026-03-07T00:00:00Z".to_string(),
             version: None,
             is_draft: 1,
+            installed_from_id: None,
         };
         db.insert_resource(&resource).unwrap();
 
@@ -221,6 +223,7 @@ mod tests {
             updated_at: "2026-03-07T00:00:00Z".to_string(),
             version: None,
             is_draft: 1,
+            installed_from_id: None,
         };
         db.insert_resource(&resource).unwrap();
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
+import { getAppSetting } from '@/lib/tauri-api';
 import { RefreshCw, Check } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { CommandPalette } from '@/components/shared/CommandPalette';
@@ -34,10 +34,10 @@ export function AppLayout() {
   const [shortcut, setShortcut] = useState('Meta+k');
 
   useEffect(() => {
-    invoke<string | null>('get_app_setting', { key: 'enable_command_palette' }).then(
+    getAppSetting('enable_command_palette').then(
       (val) => setPaletteEnabled(val === 'true')
     );
-    invoke<string | null>('get_app_setting', { key: 'command_palette_shortcut' }).then(
+    getAppSetting('command_palette_shortcut').then(
       (val) => { if (val) setShortcut(val); }
     );
   }, []);
@@ -56,10 +56,10 @@ export function AppLayout() {
 
   useEffect(() => {
     const handler = () => {
-      invoke<string | null>('get_app_setting', { key: 'enable_command_palette' }).then(
+      getAppSetting('enable_command_palette').then(
         (val) => setPaletteEnabled(val === 'true')
       );
-      invoke<string | null>('get_app_setting', { key: 'command_palette_shortcut' }).then(
+      getAppSetting('command_palette_shortcut').then(
         (val) => { if (val) setShortcut(val); }
       );
     };

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
+import { getDashboardStats, getRecentResources, searchResources } from '@/lib/tauri-api';
 import type { DashboardStats, Resource } from '@/types/v2';
 
 interface DashboardStore {
@@ -26,7 +26,7 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
 
   loadStats: async () => {
     try {
-      const stats = await invoke<DashboardStats>('get_dashboard_stats');
+      const stats = await getDashboardStats();
       set({ stats });
     } catch (e) {
       set({ error: String(e) });
@@ -35,7 +35,7 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
 
   loadRecent: async (limit = 10) => {
     try {
-      const recentResources = await invoke<Resource[]>('get_recent_resources', { limit });
+      const recentResources = await getRecentResources(limit);
       set({ recentResources });
     } catch (e) {
       set({ error: String(e) });
@@ -49,7 +49,7 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
       return;
     }
     try {
-      const searchResults = await invoke<Resource[]>('search_resources', { query });
+      const searchResults = await searchResources(query);
       set({ searchResults });
     } catch (e) {
       set({ error: String(e) });

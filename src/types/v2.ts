@@ -16,6 +16,7 @@ export interface Resource {
   updated_at: string;
   version: string | null;
   is_draft: number;
+  installed_from_id: string | null;
 }
 
 export interface Project {
@@ -38,19 +39,6 @@ export interface Plugin {
   last_checked: string | null;
 }
 
-export interface McpServer {
-  id: string;
-  name: string;
-  project_id: string | null;
-  server_type: string | null;
-  command: string | null;
-  args: string | null;
-  url: string | null;
-  env: string | null;
-  source_path: string;
-  registry_plugin_id: string | null;
-}
-
 export interface ResourceLink {
   id: string;
   resource_id: string;
@@ -60,14 +48,24 @@ export interface ResourceLink {
   project_id: string | null;
   link_type: LinkType;
   created_at: string;
+  installed_hash: string | null;
 }
 
-export interface SyncState {
-  id: string;
-  watched_path: string;
-  last_hash: string | null;
-  last_synced: string | null;
-  status: SyncStatus;
+export interface InstalledResourceInfo {
+  resource: Resource;
+  links: ResourceLink[];
+  registry_name: string | null;
+}
+
+export interface InstallStatus {
+  link: ResourceLink;
+  has_update: boolean;
+}
+
+export interface LibraryResourceWithInstalls {
+  resource: Resource;
+  installations: InstallStatus[];
+  has_update: boolean;
 }
 
 export interface DashboardStats {
@@ -163,10 +161,3 @@ export interface SkillFrontmatterData {
   body: string;
 }
 
-export interface FileEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  is_symlink: boolean;
-  size: number;
-}

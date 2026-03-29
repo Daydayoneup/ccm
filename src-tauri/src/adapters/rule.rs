@@ -1,6 +1,6 @@
 use super::*;
 use super::file_based::{file_install, file_uninstall, resolve_file_target, scan_file_resources};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct RuleAdapter;
 
@@ -55,6 +55,12 @@ impl ResourceAdapter for RuleAdapter {
 
     fn scan(&self, scope: &ResourceScope, base_path: &Path) -> Result<Vec<Resource>, String> {
         scan_file_resources(scope, base_path, "rules", &ResourceType::Rule, false)
+    }
+
+    fn type_dir(&self) -> &'static str { "rules" }
+
+    fn resolve_file_path(&self, base_dir: &Path, name: &str) -> PathBuf {
+        base_dir.join("rules").join(format!("{}.md", name))
     }
 }
 
